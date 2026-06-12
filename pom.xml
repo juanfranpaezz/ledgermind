@@ -12,7 +12,7 @@
 	<artifactId>ledgermind</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>ledgermind</name>
-	<description>Core de pagos con ledger de doble entrada inmutable, idempotencia de grado fintech y un servidor MCP de auditoria read-only. Java 21 / Spring Boot.</description>
+	<description>Core de pagos con ledger de doble entrada append-only, idempotencia por clave unica (exactly-once), control de concurrencia con optimistic locking y un servidor MCP de auditoria read-only. Java 21 / Spring Boot.</description>
 	<properties>
 		<java.version>21</java.version>
 		<spring-modulith.version>1.4.11</spring-modulith.version>

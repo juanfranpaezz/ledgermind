@@ -55,7 +55,7 @@ public class JournalChainer {
      * Recorre la cadena y recomputa cada hash desde el contenido ACTUAL del asiento. Pagina por seq
      * (keyset) y carga los asientos del lote en UNA query (sin N+1 ni full-load en memoria), para que
      * verificar no sea O(n) en round-trips ni reviente el heap. A escala real (millones de asientos) el
-     * paso siguiente es Merkle + verificacion incremental desde el ultimo checkpoint; ver DECISIONES.md.
+     * paso siguiente es Merkle + verificacion incremental desde el ultimo checkpoint.
      */
     @Transactional(readOnly = true)
     public VerifyResult verify() {
