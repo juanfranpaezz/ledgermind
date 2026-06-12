@@ -71,6 +71,15 @@
       <button data-demo="audit">Preguntar al auditor</button>
       <pre id="out-audit">—</pre>
     </div>
+
+    <div class="card">
+      <h2>4 · Conciliación: el agente explica los descuadres con el PSP</h2>
+      <p class="desc">Cruzo el ledger contra un feed (simulado) de liquidación del PSP. El matching es
+        <b>determinista en Java</b>; el agente solo <b>narra</b> cada descuadre: una comisión no asentada,
+        un cobro del PSP sin asiento, un asiento que el PSP no reporta. <i>La IA explica, el código decide.</i></p>
+      <button data-demo="reconcile">Conciliar contra el PSP</button>
+      <pre id="out-reconcile">—</pre>
+    </div>
   </div>
 
 <script>
@@ -130,7 +139,17 @@ async function demoAudit() {
     `algoritmo=${a.signatureAlgorithm ?? '—'} · chainSeq=${a.signedChainSeq} · firmado=${a.signedAt ?? '—'}`;
 }
 
-const demos = { idem:demoIdem, tamper:demoTamper, audit:demoAudit };
+async function demoReconcile() {
+  const out = $('#out-reconcile'); out.textContent = 'conciliando…';
+  const r = (await api('POST', '/api/demo/reconcile')).data;
+  let txt = `${r.summary}\n\n` +
+    pill(r.balanced, r.balanced ? 'cuadra' : `${r.discrepancies.length} descuadre(s)`) +
+    `  matched=${r.matched} · feed=${r.feedTotal} · ledger=${r.ledgerTotal}\n\n`;
+  txt += r.discrepancies.map(d => `· [${d.type}] ${d.ref}: ${d.detail}`).join('\n');
+  out.innerHTML = txt;
+}
+
+const demos = { idem:demoIdem, tamper:demoTamper, audit:demoAudit, reconcile:demoReconcile };
 document.querySelectorAll('button[data-demo]').forEach(b =>
   b.addEventListener('click', async () => {
     document.querySelectorAll('button').forEach(x => x.disabled = true);

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ledgermind.ledger.JournalCheckpointService;
 import com.ledgermind.ledger.LedgerService;
+import com.ledgermind.ledger.reconciliation.ReconciliationService;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
@@ -17,7 +18,8 @@ class McpToolsRegistrationTest {
 
     @Test
     void expone_las_tres_tools_de_solo_lectura() {
-        LedgerMcpTools tools = new LedgerMcpTools((LedgerService) null, (JournalCheckpointService) null);
+        LedgerMcpTools tools = new LedgerMcpTools(
+                (LedgerService) null, (JournalCheckpointService) null, (ReconciliationService) null);
         MethodToolCallbackProvider provider = MethodToolCallbackProvider.builder()
                 .toolObjects(tools)
                 .build();
@@ -26,6 +28,7 @@ class McpToolsRegistrationTest {
                 .map(tc -> tc.getToolDefinition().name())
                 .toList();
 
-        assertThat(names).contains("get_balance", "list_transactions", "verify_journal_integrity");
+        assertThat(names).contains("get_balance", "list_transactions",
+                "verify_journal_integrity", "explain_reconciliation_discrepancy");
     }
 }

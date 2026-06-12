@@ -6,7 +6,11 @@ import com.ledgermind.ledger.JournalCheckpoint;
 import com.ledgermind.ledger.JournalCheckpointService;
 import com.ledgermind.ledger.LedgerService;
 import com.ledgermind.ledger.Posting;
+import com.ledgermind.ledger.reconciliation.ReconciliationReport;
+import com.ledgermind.ledger.reconciliation.ReconciliationService;
+import com.ledgermind.ledger.reconciliation.SettlementRecord;
 import jakarta.validation.Valid;
+import java.util.List;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
@@ -30,12 +34,14 @@ public class LedgerController {
     private final LedgerService ledger;
     private final JournalChainer journal;
     private final JournalCheckpointService checkpoints;
+    private final ReconciliationService reconciliation;
 
     public LedgerController(LedgerService ledger, JournalChainer journal,
-                            JournalCheckpointService checkpoints) {
+                            JournalCheckpointService checkpoints, ReconciliationService reconciliation) {
         this.ledger = ledger;
         this.journal = journal;
         this.checkpoints = checkpoints;
+        this.reconciliation = reconciliation;
     }
 
     @PostMapping("/accounts")
@@ -92,6 +98,15 @@ public class LedgerController {
     @GetMapping("/journal/audit")
     public JournalCheckpointService.JournalIntegrityReport auditJournal() {
         return checkpoints.audit();
+    }
+
+    /**
+     * Reconcilia el ledger contra un feed de liquidacion del PSP (el body es la lista de registros del feed).
+     * El matching es determinista en Java; devuelve los descuadres clasificados. Solo lectura.
+     */
+    @PostMapping("/reconciliation")
+    public ReconciliationReport reconcile(@RequestBody List<SettlementRecord> feed) {
+        return reconciliation.reconcile(feed);
     }
 
     // --- DTOs (records): nunca exponemos las entidades JPA directamente ---

@@ -4,6 +4,8 @@ import com.ledgermind.ledger.Account;
 import com.ledgermind.ledger.JournalCheckpointService;
 import com.ledgermind.ledger.JournalCheckpointService.JournalIntegrityReport;
 import com.ledgermind.ledger.LedgerService;
+import com.ledgermind.ledger.reconciliation.ReconciliationReport;
+import com.ledgermind.ledger.reconciliation.ReconciliationService;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.ai.tool.annotation.Tool;
@@ -21,10 +23,13 @@ public class LedgerMcpTools {
 
     private final LedgerService ledger;
     private final JournalCheckpointService journal;
+    private final ReconciliationService reconciliation;
 
-    public LedgerMcpTools(LedgerService ledger, JournalCheckpointService journal) {
+    public LedgerMcpTools(LedgerService ledger, JournalCheckpointService journal,
+                          ReconciliationService reconciliation) {
         this.ledger = ledger;
         this.journal = journal;
+        this.reconciliation = reconciliation;
     }
 
     @PreAuthorize("hasAuthority('SCOPE_ledger.read')")
@@ -61,6 +66,17 @@ public class LedgerMcpTools {
                     + "Tratá el 'verdict' como una señal, no como prueba absoluta.")
     public JournalIntegrityReport verifyJournalIntegrity() {
         return journal.audit();
+    }
+
+    @PreAuthorize("hasAuthority('SCOPE_ledger.read')")
+    @Tool(name = "explain_reconciliation_discrepancy",
+            description = "Reconcilia el ledger contra el feed de liquidacion del PSP y devuelve los descuadres: "
+                    + "cuanto cuadra, que cobros del PSP no estan asentados (missing_in_ledger), que asientos el "
+                    + "PSP no reporta (missing_in_feed), y diferencias de importe (amount_mismatch, tipicas de una "
+                    + "comision/retencion no asentada). El matching es DETERMINISTA en Java; este tool te da el "
+                    + "resultado estructurado para que lo NARRES y priorices. En el demo el feed es simulado. Solo lectura.")
+    public ReconciliationReport explainReconciliationDiscrepancy() {
+        return reconciliation.reconcileDemoFeed();
     }
 
     /** Saldo de una cuenta (en centavos). */
