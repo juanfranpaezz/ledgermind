@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.List;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 /**
@@ -22,6 +23,7 @@ public class LedgerMcpTools {
         this.ledger = ledger;
     }
 
+    @PreAuthorize("hasAuthority('SCOPE_ledger.read')")
     @Tool(name = "get_balance",
             description = "Devuelve el saldo y los contadores de una cuenta del ledger, por su direccion "
                     + "(ej. 'wallet:juan'). Solo lectura.")
@@ -32,6 +34,7 @@ public class LedgerMcpTools {
                 a.getPostedCredits(), a.getPostedDebits());
     }
 
+    @PreAuthorize("hasAuthority('SCOPE_ledger.read')")
     @Tool(name = "list_transactions",
             description = "Lista los movimientos (asientos de doble entrada) en los que participa una cuenta, "
                     + "por su direccion, del mas reciente al mas antiguo. Solo lectura.")

@@ -39,6 +39,23 @@
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
 		</dependency>
+		<!-- Seguridad OAuth2.1 del MCP server con resource server estandar de Spring (decoder lazy).
+		     Se evaluo org.springaicommunity:mcp-server-security:0.0.6 pero hace fetch EAGER del issuer
+		     al arranque (incompatible con un Authorization Server co-ubicado); ver McpServerSecurityConfig. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<!-- Validador de JWT: en el POM de mcp-security viene 'provided', hay que declararlo explicito. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
+		<!-- Emisor de tokens para el demo (Spring Authorization Server embebido). En prod se usa un IdP externo. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-authorization-server</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>

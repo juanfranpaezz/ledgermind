@@ -1,0 +1,7 @@
+# Perfil DEMO: activa el Authorization Server embebido (ver DemoAuthorizationServerConfig.java),
+# que emite tokens client_credentials para demostrar el OAuth2.1 end-to-end.
+# No requiere config YAML adicional: el SAS y el cliente se definen en Java (solo perfil 'demo').
+spring:
+  config:
+    activate:
+      on-profile: demo
