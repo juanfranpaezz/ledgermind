@@ -1,19 +1,22 @@
 package com.ledgermind.ledger;
 
+import java.util.List;
 import org.springframework.stereotype.Service;
 
 /**
- * Servicio de aplicacion del ledger: orquesta el dominio para la capa web.
+ * Servicio de aplicacion del ledger: orquesta el dominio para la capa web y para las tools MCP.
  * Resuelve direcciones de cuenta a ids y delega el movimiento de dinero en {@link TransferService}.
  */
 @Service
 public class LedgerService {
 
     private final AccountRepository accounts;
+    private final PostingRepository postings;
     private final TransferService transfers;
 
-    public LedgerService(AccountRepository accounts, TransferService transfers) {
+    public LedgerService(AccountRepository accounts, PostingRepository postings, TransferService transfers) {
         this.accounts = accounts;
+        this.postings = postings;
         this.transfers = transfers;
     }
 
@@ -30,5 +33,11 @@ public class LedgerService {
         Long debitId = getByAddress(debitAddress).getId();
         Long creditId = getByAddress(creditAddress).getId();
         return transfers.transfer(new TransferCommand(debitId, creditId, amount, idempotencyKey));
+    }
+
+    /** Movimientos (asientos) en los que participa una cuenta. Solo lectura. */
+    public List<Posting> transactionsOf(String address) {
+        Long id = getByAddress(address).getId();
+        return postings.findByDebitAccountIdOrCreditAccountIdOrderByIdDesc(id, id);
     }
 }

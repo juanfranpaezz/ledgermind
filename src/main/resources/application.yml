@@ -17,6 +17,11 @@ spring:
           time_zone: UTC
   flyway:
     enabled: true
+  ai:
+    mcp:
+      server:
+        name: ledgermind-mcp
+        version: 0.0.1
 
 management:
   endpoints:
