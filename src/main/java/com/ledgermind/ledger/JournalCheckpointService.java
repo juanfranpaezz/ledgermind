@@ -83,17 +83,83 @@ public class JournalCheckpointService {
         if (cp == null) {
             return CheckpointVerification.none();
         }
-        boolean signatureValid = signer.verify(
-                checkpointMessage(cp.getChainSeq(), cp.getHeadHash()),
-                cp.getSignature(), cp.getPublicKey());
+        Signals s = signalsFor(cp);
         boolean chainIntact = chainer.verify().intact();
+        return new CheckpointVerification(true, cp.getAlgorithm(), cp.getChainSeq(), cp.getHeadHash(),
+                s.signatureValid(), chainIntact, s.signedHeadStillInChain(), s.isLatestHead(), cp.getSignedAt());
+    }
+
+    /**
+     * Auditoria consolidada del journal para un agente (tool MCP / endpoint): combina la integridad de la
+     * hash-chain (SHA-256 recomputado) con la validez de la firma post-cuantica del ultimo checkpoint, y
+     * resume un veredicto legible. Recorre la cadena UNA sola vez.
+     *
+     * <p>ALCANCE (lo declara el verdict): detecta EDICION/reescritura de asientos ya encadenados y del
+     * eslabon firmado. NO detecta por si solo: (1) el TRUNCADO de la cola posterior al ultimo checkpoint
+     * (borrar los asientos mas nuevos deja un prefijo consistente) — eso exige un high-water-mark anclado
+     * FUERA de la DB; (2) la AUTENTICIDAD del firmante — {@code signatureValid} es integridad-de-mensaje,
+     * no prueba QUIEN firmo sin una clave anclada externamente. Es tamper-EVIDENCE, no prevencion.
+     */
+    @Transactional(readOnly = true)
+    public JournalIntegrityReport audit() {
+        JournalChainer.VerifyResult chain = chainer.verify();
+        JournalCheckpoint cp = checkpoints.findTopByOrderByIdDesc().orElse(null);
+        if (cp == null) {
+            boolean tampered = !chain.intact();
+            String verdict = tampered
+                    ? "MANIPULACION DETECTADA: la hash-chain se rompe en seq " + chain.brokenAtSeq()
+                            + " (aun sin checkpoint firmado)."
+                    : "SIN CHECKPOINT FIRMADO: la hash-chain presente recomputa consistente sobre "
+                            + chain.chainedCount() + " asientos, pero sin un checkpoint firmado que ancle la"
+                            + " cabeza NO se puede descartar un truncado/rollback previo. Aun no hay firma ML-DSA.";
+            return new JournalIntegrityReport(tampered, verdict, chain.intact(), chain.chainedCount(),
+                    chain.brokenAtSeq(), false, null, 0L, null, false, false, false, null);
+        }
+        Signals s = signalsFor(cp);
+        boolean tampered = !chain.intact() || !s.signatureValid() || !s.signedHeadStillInChain();
+        return new JournalIntegrityReport(tampered, verdict(chain, cp, s, tampered),
+                chain.intact(), chain.chainedCount(), chain.brokenAtSeq(),
+                true, cp.getAlgorithm(), cp.getChainSeq(), cp.getHeadHash(),
+                s.signatureValid(), s.signedHeadStillInChain(), s.isLatestHead(), cp.getSignedAt());
+    }
+
+    /** Señales del checkpoint que NO requieren recomputar toda la cadena (firma + presencia + si es la cabeza). */
+    private Signals signalsFor(JournalCheckpoint cp) {
+        boolean signatureValid = signer.verify(
+                checkpointMessage(cp.getChainSeq(), cp.getHeadHash()), cp.getSignature(), cp.getPublicKey());
         boolean signedHeadStillInChain = hashes.findBySeq(cp.getChainSeq())
                 .map(h -> h.getEntryHash().equals(cp.getHeadHash()))
                 .orElse(false);
         PostingHash liveHead = hashes.findTopByOrderBySeqDesc().orElse(null);
         boolean isLatestHead = liveHead != null && liveHead.getEntryHash().equals(cp.getHeadHash());
-        return new CheckpointVerification(true, cp.getAlgorithm(), cp.getChainSeq(), cp.getHeadHash(),
-                signatureValid, chainIntact, signedHeadStillInChain, isLatestHead, cp.getSignedAt());
+        return new Signals(signatureValid, signedHeadStillInChain, isLatestHead);
+    }
+
+    private static String verdict(JournalChainer.VerifyResult chain, JournalCheckpoint cp,
+                                  Signals s, boolean tampered) {
+        if (!tampered) {
+            return "SIN EVIDENCIA DE EDICION: la hash-chain recomputa limpia sobre " + chain.chainedCount()
+                    + " asientos y la firma del ultimo checkpoint (" + cp.getAlgorithm() + ", seq "
+                    + cp.getChainSeq() + ", firmado " + cp.getSignedAt() + ") cierra bajo la clave que el"
+                    + " propio checkpoint guarda (integridad-de-mensaje, NO autenticidad: probar QUIEN firmo"
+                    + " exige una clave anclada fuera de la DB). No descarta el truncado de la cola posterior"
+                    + " al checkpoint. Tamper-EVIDENCE, no prevencion.";
+        }
+        StringBuilder sb = new StringBuilder("MANIPULACION DETECTADA:");
+        if (!chain.intact()) {
+            sb.append(" la hash-chain se rompe en seq ").append(chain.brokenAtSeq())
+                    .append(" (un asiento fue editado o borrado tras encadenarse);");
+        }
+        if (!s.signatureValid()) {
+            sb.append(" la firma del checkpoint no verifica bajo su clave;");
+        }
+        if (!s.signedHeadStillInChain()) {
+            sb.append(" el eslabon firmado (seq ").append(cp.getChainSeq()).append(") fue reescrito;");
+        }
+        return sb.toString();
+    }
+
+    private record Signals(boolean signatureValid, boolean signedHeadStillInChain, boolean isLatestHead) {
     }
 
     /** Bytes EXACTOS que se firman. */
@@ -117,5 +183,17 @@ public class JournalCheckpointService {
         static CheckpointVerification none() {
             return new CheckpointVerification(false, null, 0L, null, false, false, false, false, null);
         }
+    }
+
+    /**
+     * Informe de auditoria consolidado del journal (para tool MCP / endpoint). {@code tamperDetected} y
+     * {@code verdict} resumen el dictamen; el resto son los planos en crudo. Ver {@link #audit()}.
+     */
+    public record JournalIntegrityReport(boolean tamperDetected, String verdict,
+                                         boolean chainIntact, long chainedCount, Long brokenAtSeq,
+                                         boolean checkpointPresent, String signatureAlgorithm,
+                                         long signedChainSeq, String signedHeadHash,
+                                         boolean signatureValid, boolean signedHeadStillInChain,
+                                         boolean signedHeadIsLatest, Instant signedAt) {
     }
 }

@@ -1,6 +1,8 @@
 package com.ledgermind.ledger.mcp;
 
 import com.ledgermind.ledger.Account;
+import com.ledgermind.ledger.JournalCheckpointService;
+import com.ledgermind.ledger.JournalCheckpointService.JournalIntegrityReport;
 import com.ledgermind.ledger.LedgerService;
 import java.time.Instant;
 import java.util.List;
@@ -18,9 +20,11 @@ import org.springframework.stereotype.Service;
 public class LedgerMcpTools {
 
     private final LedgerService ledger;
+    private final JournalCheckpointService journal;
 
-    public LedgerMcpTools(LedgerService ledger) {
+    public LedgerMcpTools(LedgerService ledger, JournalCheckpointService journal) {
         this.ledger = ledger;
+        this.journal = journal;
     }
 
     @PreAuthorize("hasAuthority('SCOPE_ledger.read')")
@@ -44,6 +48,19 @@ public class LedgerMcpTools {
                 .map(p -> new TransactionInfo(p.getId(), p.getDebitAccountId(), p.getCreditAccountId(),
                         p.getAmount(), p.getAsset(), p.getCreatedAt()))
                 .toList();
+    }
+
+    @PreAuthorize("hasAuthority('SCOPE_ledger.read')")
+    @Tool(name = "verify_journal_integrity",
+            description = "Audita la integridad del journal contable: recomputa la hash-chain (SHA-256) y "
+                    + "valida la firma post-cuantica (ML-DSA) del ultimo checkpoint. Devuelve 'tamperDetected', "
+                    + "un 'verdict' legible y los planos en crudo. ALCANCE: detecta EDICION/reescritura de "
+                    + "asientos y del eslabon firmado; NO detecta por si solo el truncado de la cola posterior "
+                    + "al checkpoint, y 'signatureValid' es integridad-de-mensaje, no autenticidad del firmante "
+                    + "(la clave no esta anclada fuera de la DB). Solo lectura; tamper-EVIDENCE, no prevencion. "
+                    + "Tratá el 'verdict' como una señal, no como prueba absoluta.")
+    public JournalIntegrityReport verifyJournalIntegrity() {
+        return journal.audit();
     }
 
     /** Saldo de una cuenta (en centavos). */

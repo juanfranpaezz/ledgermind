@@ -84,6 +84,15 @@ public class LedgerController {
         return checkpoints.verifyLatest();
     }
 
+    /**
+     * Auditoria consolidada (mismo dato que el tool MCP {@code verify_journal_integrity}): hash-chain +
+     * firma post-cuantica en un solo informe con veredicto legible. Solo lectura.
+     */
+    @GetMapping("/journal/audit")
+    public JournalCheckpointService.JournalIntegrityReport auditJournal() {
+        return checkpoints.audit();
+    }
+
     // --- DTOs (records): nunca exponemos las entidades JPA directamente ---
 
     public record CreateAccountRequest(

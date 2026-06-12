@@ -102,6 +102,34 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
+    void audit_reporta_integro_y_luego_detecta_el_tamper() {
+        ledger.createAccount("external:funding", "ARS", true);
+        ledger.createAccount("wallet:a", "ARS", false);
+        ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
+        Posting t1 = ledger.transfer("external:funding", "wallet:a", 20_000, "t-1");
+        chainer.chainPendingPostings();
+        checkpoints.checkpointIfHeadAdvanced();
+
+        var ok = checkpoints.audit();
+        assertThat(ok.tamperDetected()).isFalse();
+        assertThat(ok.chainIntact()).isTrue();
+        assertThat(ok.checkpointPresent()).isTrue();
+        assertThat(ok.signatureValid()).isTrue();
+        assertThat(ok.signatureAlgorithm()).isEqualTo("ML-DSA-65");
+        assertThat(ok.verdict()).contains("SIN EVIDENCIA DE EDICION");
+        assertThat(ok.verdict()).contains("integridad-de-mensaje");   // el matiz del trust-anchor viaja al LLM
+
+        // tamper de un asiento ya encadenado
+        jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", t1.getId());
+
+        var bad = checkpoints.audit();
+        assertThat(bad.tamperDetected()).isTrue();
+        assertThat(bad.chainIntact()).isFalse();
+        assertThat(bad.brokenAtSeq()).isNotNull();
+        assertThat(bad.verdict()).contains("MANIPULACION DETECTADA");
+    }
+
+    @Test
     void detecta_reescritura_de_la_tabla_de_hashes() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
