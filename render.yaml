@@ -1,0 +1,26 @@
+# Render Blueprint — deploy de LedgerMind (web service desde el Dockerfile + Postgres gestionado).
+# Uso: en https://dashboard.render.com -> New -> Blueprint -> conectar este repo -> Apply.
+services:
+  - type: web
+    name: ledgermind
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: ledgermind-db
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: ledgermind-db
+          property: password
+      # La URL la completás 1 vez en el dashboard con el "Internal Database URL" de la DB,
+      # en formato jdbc:  jdbc:postgresql://HOST:PORT/DBNAME   (Render no la da en formato jdbc).
+      - key: SPRING_DATASOURCE_URL
+        sync: false
+
+databases:
+  - name: ledgermind-db
+    plan: free
