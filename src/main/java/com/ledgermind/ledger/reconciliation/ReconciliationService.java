@@ -4,6 +4,7 @@ import com.ledgermind.ledger.Posting;
 import com.ledgermind.ledger.PostingRepository;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,7 +36,9 @@ public class ReconciliationService {
      */
     @Transactional(readOnly = true)
     public ReconciliationReport reconcileDemoFeed() {
-        List<Posting> all = postings.findAll();
+        // Orden DETERMINISTA por id: asi i==1 (MISSING_IN_FEED) e i==2 (AMOUNT_MISMATCH) son estables.
+        // Requiere >=3 asientos para mostrar los tres descuadres; el demo siembra 5 con /api/demo/reset.
+        List<Posting> all = postings.findAll(Sort.by("id"));
         List<SettlementRecord> feed = new ArrayList<>();
         for (int i = 0; i < all.size(); i++) {
             Posting p = all.get(i);

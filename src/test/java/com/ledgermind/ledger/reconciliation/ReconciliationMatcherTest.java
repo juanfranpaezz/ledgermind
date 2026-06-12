@@ -60,4 +60,21 @@ class ReconciliationMatcherTest {
         assertThat(mismatch.ledgerAmount()).isEqualTo(1961);
         assertThat(report.summary()).contains("Descuadre");
     }
+
+    @Test
+    void refs_duplicadas_en_el_feed_se_agregan_y_no_cuadran_falsamente() {
+        // El PSP liquida la MISMA orden en dos tramos (split) que suman MAS que el asiento.
+        List<SettlementRecord> feed = List.of(
+                new SettlementRecord("ref-1", 600, T),
+                new SettlementRecord("ref-1", 600, T));
+        List<LedgerEntry> ledger = List.of(new LedgerEntry("ref-1", 1000));
+
+        ReconciliationReport report = matcher.reconcile(feed, ledger);
+
+        assertThat(report.feedTotal()).isEqualTo(1200);          // 600 + 600 agregados
+        assertThat(report.difference()).isEqualTo(200);          // 1200 vs 1000
+        assertThat(report.balanced()).isFalse();                 // NO puede cantar "conciliado"
+        assertThat(report.discrepancies()).extracting(Discrepancy::type)
+                .containsExactly(Discrepancy.Type.AMOUNT_MISMATCH);
+    }
 }

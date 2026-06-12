@@ -73,10 +73,12 @@
     </div>
 
     <div class="card">
-      <h2>4 · Conciliación: el agente explica los descuadres con el PSP</h2>
+      <h2>4 · Conciliación: el matcher clasifica los descuadres con el PSP</h2>
       <p class="desc">Cruzo el ledger contra un feed (simulado) de liquidación del PSP. El matching es
-        <b>determinista en Java</b>; el agente solo <b>narra</b> cada descuadre: una comisión no asentada,
-        un cobro del PSP sin asiento, un asiento que el PSP no reporta. <i>La IA explica, el código decide.</i></p>
+        <b>100% Java determinista</b>: una comisión no asentada, un cobro del PSP sin asiento, un asiento
+        que el PSP no reporta. Este es el <b>mismo resultado estructurado</b> que el tool MCP
+        <code>explain_reconciliation_discrepancy</code> le da a un agente para narrarlo y priorizar
+        (acá no corre ninguna IA; el código decide, la IA solo explicaría).</p>
       <button data-demo="reconcile">Conciliar contra el PSP</button>
       <pre id="out-reconcile">—</pre>
     </div>
