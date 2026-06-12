@@ -1,0 +1,21 @@
+# Postgres local para desarrollo. En tests usamos Testcontainers (Postgres efimero), no este.
+services:
+  postgres:
+    image: postgres:16
+    container_name: ledgermind-postgres
+    environment:
+      POSTGRES_DB: ledgermind
+      POSTGRES_USER: ledgermind
+      POSTGRES_PASSWORD: ledgermind
+    ports:
+      - "5432:5432"
+    volumes:
+      - ledgermind-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgermind -d ledgermind"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  ledgermind-pgdata:

@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: ledgermind
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ledgermind
+    username: ledgermind
+    password: ledgermind
+  jpa:
+    # Flyway es el dueño del esquema; Hibernate solo VALIDA que las entidades coincidan.
+    hibernate:
+      ddl-auto: validate
+    # Evitamos el anti-patron Open-Session-In-View (mantiene la sesion JPA abierta en la capa web).
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ledgermind
