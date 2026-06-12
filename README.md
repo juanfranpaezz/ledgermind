@@ -101,7 +101,7 @@ docker compose up -d
 # 2) La app (perfil demo = incluye un Authorization Server embebido para emitir tokens del MCP)
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
 
-# Tests (15, incluido el spike de concurrencia y el runtime real de ML-DSA). Solo necesita Docker:
+# Tests (spike de concurrencia, runtime real de ML-DSA, enforcement de scope, reconciliación...). Solo necesita Docker:
 ./mvnw verify
 ```
 
@@ -120,14 +120,16 @@ docker compose up -d
 | `GET`  | `/api/journal/checkpoint` | Último checkpoint firmado + clave pública + firma (Capa 2). |
 | `GET`  | `/api/journal/checkpoint/verify` | Verifica firma + cadena en planos separados. |
 | `GET`  | `/api/journal/audit` | Auditoría consolidada con veredicto legible (= tool MCP). |
+| `POST` | `/api/reconciliation` | Reconcilia un feed de liquidación del PSP contra el ledger (matching determinista por referencia). |
 
-**MCP** (`/mcp`, OAuth2.1 — *scope* `ledger.read` por tool, **solo lectura**)
+**MCP** (`/mcp`, OAuth2.1 — *scope* `ledger.read` por tool + validación de **audiencia**, **solo lectura**)
 
 | Tool | Qué hace |
 |------|----------|
 | `get_balance` | Saldo de una cuenta. |
 | `list_transactions` | Movimientos de una cuenta. |
 | `verify_journal_integrity` | Audita la integridad del journal (hash-chain + firma post-cuántica). |
+| `explain_reconciliation_discrepancy` | Reconcilia el ledger contra el feed del PSP y devuelve los descuadres clasificados (la IA los narra; el código decide). |
 
 El endpoint `/mcp` exige un **JWT Bearer** válido; sin token → `401`. En el perfil `demo`, un **Spring Authorization Server** embebido emite tokens (`client_credentials`) en `/oauth2/token`.
 
@@ -149,12 +151,14 @@ Las decisiones formales más relevantes están como ADRs en [`docs/adr/`](docs/a
 
 ## Tests
 
-15 tests (`./mvnw verify`), entre ellos:
+La suite (`./mvnw verify`, contra Postgres real), entre otros:
 
 - **Spike de concurrencia** — 50 transferencias en paralelo sobre una cuenta con saldo limitado: se verifica conservación del dinero, no-sobregiro y doble-entrada global.
+- **Idempotencia exactly-once** — 24 requests con la misma clave en paralelo reciben el mismo asiento (replay, no 500); reusar la clave con otros parámetros → 409.
 - **Runtime de ML-DSA** — prueba que BouncyCastle *realmente firma y verifica* (no solo que compila), y rechaza datos alterados y claves ajenas.
-- **Enforcement del scope MCP** — invoca la tool con y sin `SCOPE_ledger.read` y exige `AccessDeniedException` cuando falta.
+- **Seguridad MCP** — enforcement del scope `ledger.read` por tool + el SAS emite `aud=ledgermind-mcp` (validación de audiencia).
 - **Tamper-evidence** — edita un asiento por SQL directo y verifica que la cadena lo detecta y la firma queda disociada.
+- **Reconciliación** — matcher determinista que cuadra y clasifica los 4 descuadres (incl. refs duplicadas del PSP que se agregan, sin cuadrar en falso).
 
 ---
 
@@ -165,8 +169,9 @@ Esto es un **proyecto de demostración**; los límites están escritos a propós
 - **Dinero simulado** — es una demostración de capacidad, no un sistema con compliance certificado.
 - **Clave de firma efímera** — se genera al arranque. En producción la privada vive en **HSM/KMS** y la pública se **ancla fuera de la DB**; la verificación de firma prueba *integridad-de-mensaje*, no *autenticidad* del firmante sin ese ancla.
 - **Tamper-EVIDENCE, no prevención** — un actor con escritura total en la DB puede reescribir contenido + cadena + checkpoint de forma consistente; lo que sube el costo y lo hace detectable es anclar externamente (HSM + log de transparencia + WORM). La auditoría **no** detecta por sí sola el *truncado* de la cola sin un *high-water-mark* externo.
-- **`/api` abierto en la demo** — solo `/mcp` está bajo OAuth; en producción el read-model también iría con auth.
+- **`/api` abierto en la demo** — solo `/mcp` está bajo OAuth (con validación de audiencia); en producción el read-model también iría con auth. Los endpoints `/api/demo/*` (reset/tamper) existen solo bajo el perfil `demo` y están rate-limitados.
 - **`verify()` es O(n)** — a escala real, el paso siguiente es Merkle + verificación incremental desde el último checkpoint.
+- **Reconciliación con feed simulado** — el matching es por referencia + importe exactos (sin tolerancia, ventana T+N ni multi-moneda); en prod el feed vendría del archivo real del PSP y se reconciliaría por ventana. Asume `idempotencyKey == id de orden del cliente` como eje de correlación.
 
 ---
 
@@ -179,6 +184,6 @@ Esto es un **proyecto de demostración**; los límites están escritos a propós
 <details>
 <summary><b>English summary</b></summary>
 
-LedgerMind is a payments backend in Java/Spring Boot: an **append-only double-entry ledger** with exact integer money, **exactly-once idempotency**, and explicit **concurrency control** (optimistic locking + retry), proven by a Testcontainers concurrency test. It exposes **read-only MCP tools** (Spring AI) to an AI agent behind an **OAuth2.1** resource server with per-tool scopes. On top sits a **three-layer auditability ladder**: a SHA-256 **hash-chain** (tamper-evidence), a **post-quantum ML-DSA / FIPS 204 signature** of the chain head (Signed Tree Head), and an MCP tool (`verify_journal_integrity`) that lets the agent audit the journal itself. Limitations (ephemeral demo key, tamper-evidence vs prevention, O(n) verification) are documented on purpose. See [`docs/adr/`](docs/adr) for the rationale behind each decision.
+LedgerMind is a payments backend in Java/Spring Boot: an **append-only double-entry ledger** with exact integer money, **exactly-once idempotency**, and explicit **concurrency control** (optimistic locking + retry), proven by a Testcontainers concurrency test. It exposes **read-only MCP tools** (Spring AI) to an AI agent behind an **OAuth2.1** resource server with per-tool scopes and **audience validation** (confused-deputy defense). On top sits a **three-layer auditability ladder**: a SHA-256 **hash-chain** (tamper-evidence), a **post-quantum ML-DSA / FIPS 204 signature** of the chain head (Signed Tree Head), and an MCP tool (`verify_journal_integrity`) that lets the agent audit the journal itself. A **reconciliation** module deterministically matches a PSP settlement feed against the ledger and classifies discrepancies (the AI only narrates them; the code decides). Limitations (ephemeral demo key, tamper-evidence vs prevention, O(n) verification, simulated feed) are documented on purpose. See [`docs/adr/`](docs/adr) for the rationale behind each decision.
 
 </details>
