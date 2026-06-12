@@ -2,6 +2,8 @@ package com.ledgermind.ledger.web;
 
 import com.ledgermind.ledger.Account;
 import com.ledgermind.ledger.JournalChainer;
+import com.ledgermind.ledger.JournalCheckpoint;
+import com.ledgermind.ledger.JournalCheckpointService;
 import com.ledgermind.ledger.LedgerService;
 import com.ledgermind.ledger.Posting;
 import jakarta.validation.Valid;
@@ -10,6 +12,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,10 +28,13 @@ public class LedgerController {
 
     private final LedgerService ledger;
     private final JournalChainer journal;
+    private final JournalCheckpointService checkpoints;
 
-    public LedgerController(LedgerService ledger, JournalChainer journal) {
+    public LedgerController(LedgerService ledger, JournalChainer journal,
+                            JournalCheckpointService checkpoints) {
         this.ledger = ledger;
         this.journal = journal;
+        this.checkpoints = checkpoints;
     }
 
     @PostMapping("/accounts")
@@ -54,6 +60,28 @@ public class LedgerController {
     @GetMapping("/journal/verify")
     public JournalChainer.VerifyResult verifyJournal() {
         return journal.verify();
+    }
+
+    /**
+     * Ultimo checkpoint firmado (Signed Tree Head local). Devuelve la clave publica, la firma ML-DSA y el
+     * mensaje EXACTO firmado, para que un tercero pueda verificar la firma por su cuenta — contra una clave
+     * que en prod debe anclarse fuera de la DB. 204 si aun no hay checkpoints.
+     */
+    @GetMapping("/journal/checkpoint")
+    public ResponseEntity<CheckpointView> latestCheckpoint() {
+        return checkpoints.latest()
+                .map(cp -> ResponseEntity.ok(CheckpointView.from(cp)))
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /**
+     * Verifica el ultimo checkpoint en planos separados: firma valida, cadena integra (SHA-256 recomputado),
+     * eslabon firmado aun presente, y si es ademas la cabeza viva (informativo). El tamper de CONTENIDO lo
+     * delata {@code chainIntact}, no la firma.
+     */
+    @GetMapping("/journal/checkpoint/verify")
+    public JournalCheckpointService.CheckpointVerification verifyCheckpoint() {
+        return checkpoints.verifyLatest();
     }
 
     // --- DTOs (records): nunca exponemos las entidades JPA directamente ---
@@ -84,6 +112,16 @@ public class LedgerController {
         static PostingView from(Posting p) {
             return new PostingView(p.getId(), p.getDebitAccountId(), p.getCreditAccountId(),
                     p.getAmount(), p.getAsset(), p.getIdempotencyKey(), p.getCreatedAt());
+        }
+    }
+
+    public record CheckpointView(long chainSeq, String headHash, String algorithm,
+                                 String signedMessage, String publicKeyBase64, String signature,
+                                 Instant signedAt) {
+        static CheckpointView from(JournalCheckpoint cp) {
+            return new CheckpointView(cp.getChainSeq(), cp.getHeadHash(), cp.getAlgorithm(),
+                    JournalCheckpointService.checkpointMessageString(cp.getChainSeq(), cp.getHeadHash()),
+                    cp.getPublicKey(), cp.getSignature(), cp.getSignedAt());
         }
     }
 }

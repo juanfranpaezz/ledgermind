@@ -4,6 +4,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.data.domain.Limit;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -48,21 +51,40 @@ public class JournalChainer {
         }
     }
 
-    /** Recorre la cadena y recomputa cada hash desde el contenido ACTUAL del asiento. */
+    /**
+     * Recorre la cadena y recomputa cada hash desde el contenido ACTUAL del asiento. Pagina por seq
+     * (keyset) y carga los asientos del lote en UNA query (sin N+1 ni full-load en memoria), para que
+     * verificar no sea O(n) en round-trips ni reviente el heap. A escala real (millones de asientos) el
+     * paso siguiente es Merkle + verificacion incremental desde el ultimo checkpoint; ver DECISIONES.md.
+     */
     @Transactional(readOnly = true)
     public VerifyResult verify() {
         String prev = GENESIS;
         long checked = 0;
-        for (PostingHash link : hashes.findAllByOrderBySeqAsc()) {
-            Posting p = postings.findById(link.getPostingId()).orElse(null);
-            if (p == null) {
-                return new VerifyResult(false, checked, link.getSeq());          // asiento borrado
+        long lastSeq = 0;
+        while (true) {
+            List<PostingHash> batch = hashes.findBySeqGreaterThanOrderBySeqAsc(lastSeq, Limit.of(BATCH));
+            if (batch.isEmpty()) {
+                break;
             }
-            if (!prev.equals(link.getPrevHash()) || !entryHash(prev, p).equals(link.getEntryHash())) {
-                return new VerifyResult(false, checked, link.getSeq());          // contenido alterado / cadena rota
+            List<Long> ids = batch.stream().map(PostingHash::getPostingId).toList();
+            Map<Long, Posting> byId = postings.findAllById(ids).stream()
+                    .collect(Collectors.toMap(Posting::getId, Function.identity()));
+            for (PostingHash link : batch) {
+                Posting p = byId.get(link.getPostingId());
+                if (p == null) {
+                    return new VerifyResult(false, checked, link.getSeq());       // asiento borrado
+                }
+                if (!prev.equals(link.getPrevHash()) || !entryHash(prev, p).equals(link.getEntryHash())) {
+                    return new VerifyResult(false, checked, link.getSeq());       // contenido alterado / cadena rota
+                }
+                prev = link.getEntryHash();
+                checked++;
+                lastSeq = link.getSeq();
             }
-            prev = link.getEntryHash();
-            checked++;
+            if (batch.size() < BATCH) {
+                break;
+            }
         }
         return new VerifyResult(true, checked, null);
     }
