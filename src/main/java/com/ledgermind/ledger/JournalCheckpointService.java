@@ -51,7 +51,13 @@ public class JournalCheckpointService {
         String signature = signer.sign(message);
         JournalCheckpoint cp = new JournalCheckpoint(head.getSeq(), head.getEntryHash(),
                 signer.algorithm(), signer.publicKeyBase64(), signature);
-        return Optional.of(checkpoints.save(cp));
+        try {
+            return Optional.of(checkpoints.save(cp));
+        } catch (org.springframework.dao.DataIntegrityViolationException raced) {
+            // Otro escritor (p.ej. el job @Scheduled vs el reset sincrono de la demo) firmo esta misma
+            // cabeza primero y choco con UNIQUE(chain_seq): no-op idempotente, no es un error.
+            return Optional.empty();
+        }
     }
 
     /** El ultimo checkpoint (para exponerlo en la API). */

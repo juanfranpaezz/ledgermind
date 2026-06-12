@@ -42,8 +42,9 @@ public class JournalChainer {
         PostingHash head = hashes.findTopByOrderBySeqDesc().orElse(null);
         long seq = head != null ? head.getSeq() : 0L;
         String prev = head != null ? head.getEntryHash() : GENESIS;
-        long lastChainedId = head != null ? head.getPostingId() : 0L;
-        List<Posting> pending = postings.findByIdGreaterThanOrderByIdAsc(lastChainedId, Limit.of(BATCH));
+        // Por AUSENCIA en posting_hash (no por watermark de id): un asiento con id menor que commitea
+        // tarde no queda sin encadenar (antes, findByIdGreaterThan lo salteaba para siempre).
+        List<Posting> pending = postings.findUnchainedOrderByIdAsc(Limit.of(BATCH));
         for (Posting p : pending) {
             String entry = entryHash(prev, p);
             hashes.save(new PostingHash(p.getId(), ++seq, prev, entry));

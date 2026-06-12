@@ -34,7 +34,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health, info, prometheus
+        include: health   # info/prometheus fuera de la superficie publica (evita fuga de metricas operativas)
   endpoint:
     health:
       show-details: when_authorized

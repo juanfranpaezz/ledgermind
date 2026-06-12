@@ -139,7 +139,7 @@ document.querySelectorAll('button[data-demo]').forEach(b =>
     finally { document.querySelectorAll('button').forEach(x => x.disabled = false); }
   }));
 $('#btnReset').addEventListener('click', reset);
-reset();  // arranca limpio
+// NO auto-reset: el reset es destructivo y publico; que cada quien lo dispare a mano con el boton.
 </script>
 </body>
 </html>

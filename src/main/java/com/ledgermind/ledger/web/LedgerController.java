@@ -7,6 +7,7 @@ import com.ledgermind.ledger.JournalCheckpointService;
 import com.ledgermind.ledger.LedgerService;
 import com.ledgermind.ledger.Posting;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -96,16 +97,17 @@ public class LedgerController {
     // --- DTOs (records): nunca exponemos las entidades JPA directamente ---
 
     public record CreateAccountRequest(
-            @NotBlank String address,
+            @NotBlank @Size(max = 128) String address,
             @NotBlank @Size(min = 3, max = 3) String asset,
             Boolean allowNegative) {
     }
 
     public record TransferRequest(
-            @NotBlank String debitAddress,
-            @NotBlank String creditAddress,
-            @Positive long amount,
-            @NotBlank String idempotencyKey) {
+            @NotBlank @Size(max = 128) String debitAddress,
+            @NotBlank @Size(max = 128) String creditAddress,
+            // Cota superior: evita overflow de los contadores BIGINT por una cuenta allow_negative.
+            @Positive @Max(1_000_000_000_000L) long amount,
+            @NotBlank @Size(max = 64) String idempotencyKey) {
     }
 
     public record AccountView(String address, String asset, long balance,

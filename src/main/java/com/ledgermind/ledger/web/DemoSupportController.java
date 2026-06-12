@@ -42,8 +42,14 @@ class DemoSupportController {
         ledger.createAccount("wallet:beto", "ARS", false);
         ledger.transfer("external:funding", "wallet:ana", 100_000, "seed-ana");
         ledger.transfer("wallet:ana", "wallet:beto", 30_000, "ana-beto-1");
-        chainer.chainPendingPostings();              // encadenar ahora (no esperar al job async)
-        checkpoints.checkpointIfHeadAdvanced();      // y firmar la cabeza ahora
+        // Encadenar y firmar AHORA (no esperar al job async). Si el job @Scheduled corre en paralelo y
+        // gana la carrera, su violacion de PK/UNIQUE es benigna: el scheduler completa la cadena igual.
+        try {
+            chainer.chainPendingPostings();
+            checkpoints.checkpointIfHeadAdvanced();
+        } catch (org.springframework.dao.DataIntegrityViolationException raced) {
+            // el job programado ya encadeno/firmo esta cabeza; nada que hacer
+        }
         return new DemoMessage("Estado limpio: 3 cuentas, 2 transferencias, hash-chain firmada con ML-DSA.");
     }
 
