@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LedgerMind — demo de auditor</title>
+  <style>
+    :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ec; --mut:#9aa3b2;
+            --ok:#3fb950; --bad:#f85149; --accent:#58a6ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--txt); font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+    .wrap { max-width:880px; margin:0 auto; padding:24px 18px 60px; }
+    h1 { font-size:24px; margin:0 0 2px; }
+    .sub { color:var(--mut); margin:0 0 16px; }
+    .banner { background:#3a2a12; border:1px solid #6b4e1f; color:#f0c674; padding:10px 14px;
+              border-radius:8px; font-size:13px; margin-bottom:20px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:16px; }
+    .card h2 { font-size:17px; margin:0 0 4px; }
+    .card p.desc { color:var(--mut); margin:0 0 14px; font-size:14px; }
+    button { background:var(--accent); color:#06203a; border:0; border-radius:7px; padding:9px 15px;
+             font-weight:600; cursor:pointer; font-size:14px; }
+    button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+    button:disabled { opacity:.5; cursor:default; }
+    pre { background:#0b0d11; border:1px solid var(--line); border-radius:7px; padding:12px;
+          overflow-x:auto; font-size:13px; margin:14px 0 0; white-space:pre-wrap; word-break:break-word; }
+    .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:600; }
+    .pill.ok { background:#0f2e16; color:var(--ok); border:1px solid #1c5128; }
+    .pill.bad { background:#3a1416; color:var(--bad); border:1px solid #6b2226; }
+    code { color:var(--accent); }
+    .top { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:18px; }
+    a { color:var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>LedgerMind <span style="color:var(--mut);font-weight:400">· demo de auditor</span></h1>
+    <p class="sub">Core de pagos con ledger de doble entrada, idempotencia y auditoría post-cuántica vía MCP.</p>
+
+    <div class="banner">
+      ⚖️ <b>DEMO con dinero simulado.</b> El ledger es <b>tamper-evident</b> (append-only + hash/firma),
+      no un sistema de prevención de fraude de producción. Lo real y defendible es el diseño de concurrencia
+      e idempotencia que está debajo. &nbsp;·&nbsp; <a href="https://github.com/juanfranpaezz/ledgermind" target="_blank">Código</a>
+    </div>
+
+    <div class="top">
+      <button class="ghost" id="btnReset">🔄 Reiniciar demo a estado limpio</button>
+      <span id="resetMsg" class="sub" style="margin:0"></span>
+    </div>
+
+    <div class="card">
+      <h2>1 · Idempotencia: un reintento no cobra dos veces</h2>
+      <p class="desc">Hago la <b>misma</b> transferencia dos veces con la misma <code>idempotencyKey</code>.
+        Debe crear <b>un solo</b> asiento y mover la plata <b>una sola vez</b>.</p>
+      <button data-demo="idem">Cobrar 2× con la misma clave</button>
+      <pre id="out-idem">—</pre>
+    </div>
+
+    <div class="card">
+      <h2>2 · Tamper-evidence: editar el libro rompe la cadena</h2>
+      <p class="desc">Simulo un atacante con acceso a la base que <b>edita un asiento por SQL directo</b>.
+        La firma ML-DSA sigue válida (firmó la cabeza original), pero la hash-chain <b>ya no recomputa</b>:
+        prueba de que lo alteraron <b>después</b> de firmar.</p>
+      <button data-demo="tamper">Editar un asiento por SQL</button>
+      <pre id="out-tamper">—</pre>
+    </div>
+
+    <div class="card">
+      <h2>3 · El auditor responde: ¿el ledger fue manipulado?</h2>
+      <p class="desc">Esto es <b>el mismo informe</b> que el tool MCP <code>verify_journal_integrity</code>
+        le devuelve a un agente de IA. El agente lee y explica; nunca puede mover un peso.</p>
+      <button data-demo="audit">Preguntar al auditor</button>
+      <pre id="out-audit">—</pre>
+    </div>
+  </div>
+
+<script>
+const $ = s => document.querySelector(s);
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await r.text();
+  let data; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  return { status: r.status, data };
+}
+const pill = (ok, label) => `<span class="pill ${ok ? 'ok' : 'bad'}">${ok ? '✓' : '✗'} ${label}</span>`;
+
+async function reset() {
+  $('#resetMsg').textContent = 'reiniciando…';
+  const r = await api('POST', '/api/demo/reset');
+  $('#resetMsg').textContent = r.data?.message || ('estado ' + r.status);
+  ['idem','tamper','audit'].forEach(k => $('#out-'+k).textContent = '—');
+}
+
+async function demoIdem() {
+  const out = $('#out-idem'); out.textContent = 'cobrando…';
+  const before = (await api('GET', '/api/accounts/wallet:beto')).data.balance;
+  const t1 = await api('POST', '/api/transfers',
+    { debitAddress:'wallet:ana', creditAddress:'wallet:beto', amount:5000, idempotencyKey:'demo-dup' });
+  const t2 = await api('POST', '/api/transfers',
+    { debitAddress:'wallet:ana', creditAddress:'wallet:beto', amount:5000, idempotencyKey:'demo-dup' });
+  const after = (await api('GET', '/api/accounts/wallet:beto')).data.balance;
+  const sameId = t1.data.id === t2.data.id;
+  out.innerHTML =
+    `1ª llamada → asiento id=${t1.data.id}\n` +
+    `2ª llamada (misma idempotencyKey) → asiento id=${t2.data.id}\n\n` +
+    pill(sameId, 'mismo asiento (replay, no duplicado)') + '  ' +
+    pill(after - before === 5000, `beto recibió 5000 una sola vez (${before} → ${after})`);
+}
+
+async function demoTamper() {
+  const out = $('#out-tamper'); out.textContent = 'editando…';
+  const t = await api('POST', '/api/demo/tamper');
+  const a = (await api('GET', '/api/journal/audit')).data;
+  out.innerHTML =
+    `${t.data.message}\n\n` +
+    pill(a.signatureValid, 'signatureValid (la firma sigue válida)') + '  ' +
+    pill(!a.chainIntact, 'chainIntact = false (la cadena ya no recomputa)') + '\n\n' +
+    `Veredicto del auditor:\n${a.verdict}`;
+}
+
+async function demoAudit() {
+  const out = $('#out-audit'); out.textContent = 'consultando…';
+  const a = (await api('GET', '/api/journal/audit')).data;
+  out.innerHTML =
+    pill(!a.tamperDetected, a.tamperDetected ? 'tamperDetected = TRUE' : 'sin evidencia de manipulación') + '\n\n' +
+    `${a.verdict}\n\n` +
+    `algoritmo=${a.signatureAlgorithm ?? '—'} · chainSeq=${a.signedChainSeq} · firmado=${a.signedAt ?? '—'}`;
+}
+
+const demos = { idem:demoIdem, tamper:demoTamper, audit:demoAudit };
+document.querySelectorAll('button[data-demo]').forEach(b =>
+  b.addEventListener('click', async () => {
+    document.querySelectorAll('button').forEach(x => x.disabled = true);
+    try { await demos[b.dataset.demo](); }
+    catch (e) { $('#out-' + b.dataset.demo).textContent = 'error: ' + e.message; }
+    finally { document.querySelectorAll('button').forEach(x => x.disabled = false); }
+  }));
+$('#btnReset').addEventListener('click', reset);
+reset();  // arranca limpio
+</script>
+</body>
+</html>
