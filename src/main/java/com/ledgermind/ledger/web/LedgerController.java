@@ -1,6 +1,7 @@
 package com.ledgermind.ledger.web;
 
 import com.ledgermind.ledger.Account;
+import com.ledgermind.ledger.JournalChainer;
 import com.ledgermind.ledger.LedgerService;
 import com.ledgermind.ledger.Posting;
 import jakarta.validation.Valid;
@@ -23,9 +24,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class LedgerController {
 
     private final LedgerService ledger;
+    private final JournalChainer journal;
 
-    public LedgerController(LedgerService ledger) {
+    public LedgerController(LedgerService ledger, JournalChainer journal) {
         this.ledger = ledger;
+        this.journal = journal;
     }
 
     @PostMapping("/accounts")
@@ -45,6 +48,12 @@ public class LedgerController {
     public PostingView transfer(@RequestBody @Valid TransferRequest req) {
         Posting p = ledger.transfer(req.debitAddress(), req.creditAddress(), req.amount(), req.idempotencyKey());
         return PostingView.from(p);
+    }
+
+    /** Verifica la integridad de la hash-chain del journal (tamper-evidence). Solo lectura. */
+    @GetMapping("/journal/verify")
+    public JournalChainer.VerifyResult verifyJournal() {
+        return journal.verify();
     }
 
     // --- DTOs (records): nunca exponemos las entidades JPA directamente ---
