@@ -1,6 +1,7 @@
 package com.ledgermind.ledger.web;
 
 import com.ledgermind.ledger.AccountNotFoundException;
+import com.ledgermind.ledger.IdempotencyConflictException;
 import com.ledgermind.ledger.InsufficientFundsException;
 import com.ledgermind.ledger.TransferConflictException;
 import org.springframework.http.HttpStatus;
@@ -27,6 +28,11 @@ public class LedgerExceptionHandler {
 
     @ExceptionHandler(TransferConflictException.class)
     ProblemDetail handleConflict(TransferConflictException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    ProblemDetail handleIdempotencyConflict(IdempotencyConflictException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
 
