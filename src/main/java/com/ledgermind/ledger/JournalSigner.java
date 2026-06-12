@@ -17,7 +17,7 @@ package com.ledgermind.ledger;
  */
 public interface JournalSigner {
 
-    /** Nombre del algoritmo de firma en uso (para el checkpoint y la entrevista). */
+    /** Nombre del algoritmo de firma en uso (se persiste en cada checkpoint). */
     String algorithm();
 
     /** Clave PUBLICA (base64, X.509) del firmante actual; se persiste junto a cada firma. */

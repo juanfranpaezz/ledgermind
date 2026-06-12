@@ -1,7 +1,7 @@
 -- =====================================================================================
 -- V1 — Núcleo del ledger de doble entrada.
 --
--- Principios de diseño (cada uno es defendible en una entrevista):
+-- Principios de diseño (cada uno con su porqué):
 --   1. Dinero como ENTEROS en minor units (centavos). NUNCA float/double.
 --   2. Asientos INMUTABLES (append-only): nunca UPDATE ni DELETE sobre `posting`.
 --      Una corrección es un asiento NUEVO con las cuentas invertidas (storno).
