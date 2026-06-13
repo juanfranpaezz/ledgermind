@@ -3,6 +3,9 @@ package com.ledgermind.ledger;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class JournalCheckpointService {
+
+    private static final Logger log = LoggerFactory.getLogger(JournalCheckpointService.class);
 
     private final PostingHashRepository hashes;
     private final JournalCheckpointRepository checkpoints;
@@ -53,9 +58,13 @@ public class JournalCheckpointService {
                 signer.algorithm(), signer.publicKeyBase64(), signature);
         try {
             return Optional.of(checkpoints.save(cp));
-        } catch (org.springframework.dao.DataIntegrityViolationException raced) {
-            // Otro escritor (p.ej. el job @Scheduled vs el reset sincrono de la demo) firmo esta misma
-            // cabeza primero y choco con UNIQUE(chain_seq): no-op idempotente, no es un error.
+        } catch (DataIntegrityViolationException raced) {
+            // Esperado SOLO si otro escritor (el job @Scheduled vs el reset sincrono de la demo) firmo esta
+            // misma cabeza primero y choco con UNIQUE(chain_seq): no-op idempotente. Pero el catch es por TIPO:
+            // se logea para que una causa INESPERADA (otra constraint) quede VISIBLE en vez de tragarse en
+            // silencio mientras audit() seguiria reportando el checkpoint viejo como valido.
+            log.debug("checkpoint no insertado para seq {} (probable carrera benigna por UNIQUE(chain_seq)): {}",
+                    head.getSeq(), raced.getMostSpecificCause().getMessage());
             return Optional.empty();
         }
     }
