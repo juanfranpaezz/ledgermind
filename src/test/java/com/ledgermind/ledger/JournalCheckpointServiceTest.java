@@ -1,6 +1,7 @@
 package com.ledgermind.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -143,6 +144,25 @@ class JournalCheckpointServiceTest {
         var v = checkpoints.verifyLatest();
         assertThat(v.signedHeadStillInChain()).isFalse();  // el eslabon firmado ya no coincide con la firma
         assertThat(v.chainIntact()).isFalse();             // y la cadena tampoco recomputa
+    }
+
+    @Test
+    void una_firma_estructuralmente_corrupta_falla_ruidoso_y_NO_como_tamper() {
+        ledger.createAccount("external:funding", "ARS", true);
+        ledger.createAccount("wallet:a", "ARS", false);
+        ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
+        chainer.chainPendingPostings();
+        checkpoints.checkpointIfHeadAdvanced();
+
+        // Un actor con escritura en la DB reescribe la clave publica del checkpoint con basura NO-Base64.
+        // verify() no puede ni decodificarla: NO es evidencia criptografica de tamper, es una falla
+        // ESTRUCTURAL. Debe fallar RUIDOSO (IllegalStateException), no devolver un falso "MANIPULACION
+        // DETECTADA" (que es lo que hacia el viejo catch(Exception)->false).
+        jdbc.update("UPDATE journal_checkpoint SET public_key = ? "
+                + "WHERE chain_seq = (SELECT max(chain_seq) FROM journal_checkpoint)", "no-es-base64-valido!!");
+
+        assertThatThrownBy(() -> checkpoints.audit())
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

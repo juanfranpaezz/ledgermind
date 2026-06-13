@@ -57,6 +57,11 @@ class LedgerConcurrencySpikeTest {
         Account walletB = accounts.save(new Account("wallet:b", "ARS", false));
         transferService.transfer(new TransferCommand(external.getId(), walletA.getId(), FUNDED, "seed-A"));
 
+        // Baseline del contador ANTES de la fase concurrente: el AtomicLong del bean es acumulativo y se
+        // comparte entre clases @SpringBootTest del mismo contexto cacheado, asi que medimos el DELTA que
+        // causan ESTAS 50 transferencias, no un valor absoluto que podria venir de otro test.
+        long retriesBefore = transferService.retryCount();
+
         // --- ACT: disparamos las 50 transferencias A->B lo mas simultaneas posible ---
         ExecutorService pool = Executors.newFixedThreadPool(CONCURRENT);
         CountDownLatch startGate = new CountDownLatch(1); // largada unica para maxima contencion
@@ -126,9 +131,10 @@ class LedgerConcurrencySpikeTest {
         assertThat(successes).isBetween(1, (int) MAX_SUCCESSES);
 
         // 7) CONTENCION REAL: con 50 hilos largados a la vez (CountDownLatch) sobre la MISMA cuenta, el
-        //    optimistic-lock DEBE haber forzado al menos un reintento. Sin esto, el test podria pasar 'verde'
-        //    por puro scheduling secuencial SIN ejercitar nunca el camino retry -> falsa cobertura sobre la
-        //    pieza estrella. (El seed inicial no genera contencion: este contador refleja la fase concurrente.)
-        assertThat(transferService.retryCount()).isGreaterThan(0);
+        //    optimistic-lock DEBE haber forzado al menos un reintento. Medimos el DELTA respecto al baseline
+        //    para que la asercion pruebe la contencion de la FASE de este spike (y no reintentos acumulados
+        //    por otro test del mismo contexto). Sin esto, el test podria pasar 'verde' por scheduling
+        //    secuencial SIN ejercitar nunca el camino retry -> falsa cobertura sobre la pieza estrella.
+        assertThat(transferService.retryCount() - retriesBefore).isGreaterThan(0);
     }
 }
