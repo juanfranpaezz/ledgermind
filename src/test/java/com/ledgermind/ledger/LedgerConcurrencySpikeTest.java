@@ -124,5 +124,11 @@ class LedgerConcurrencySpikeTest {
 
         // 6) NUNCA mas exitos de los que el saldo permite.
         assertThat(successes).isBetween(1, (int) MAX_SUCCESSES);
+
+        // 7) CONTENCION REAL: con 50 hilos largados a la vez (CountDownLatch) sobre la MISMA cuenta, el
+        //    optimistic-lock DEBE haber forzado al menos un reintento. Sin esto, el test podria pasar 'verde'
+        //    por puro scheduling secuencial SIN ejercitar nunca el camino retry -> falsa cobertura sobre la
+        //    pieza estrella. (El seed inicial no genera contencion: este contador refleja la fase concurrente.)
+        assertThat(transferService.retryCount()).isGreaterThan(0);
     }
 }
