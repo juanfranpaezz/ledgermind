@@ -15,8 +15,20 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
+        # Ordena los UPDATE/INSERT por entidad+id antes de flushear: dos transferencias opuestas
+        # (A->B y B->A) adquieren los locks de fila en el MISMO orden -> reduce el deadlock 40P01 de raiz.
+        # (El retry de TransferService cubre el deadlock residual; esto baja su frecuencia.)
+        order_updates: true
+        order_inserts: true
   flyway:
     enabled: true
+  mvc:
+    problemdetails:
+      # Los errores que Spring resuelve solo (validacion @Valid -> MethodArgumentNotValidException, body
+      # JSON malformado -> HttpMessageNotReadableException, media-type, type-mismatch) se serializan como
+      # ProblemDetail RFC 7807, IGUAL que las excepciones de dominio. Sin esto el 400 mas frecuente del
+      # cliente caia al shape legacy {timestamp,status,error,path}: dos contratos de error en la misma API.
+      enabled: true
   ai:
     mcp:
       server:

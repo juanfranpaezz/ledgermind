@@ -106,6 +106,14 @@ public class LedgerController {
      */
     @PostMapping("/reconciliation")
     public ReconciliationReport reconcile(@RequestBody List<SettlementRecord> feed) {
+        // Validacion en el BORDE: un feed real de un PSP trae filas sucias. Sin esto, un body 'null', un
+        // elemento [null] o un externalRef nulo reventaban el matcher (groupingBy con clave null) con un NPE
+        // crudo -> 500 en un endpoint publico. Lo clasificamos como lo que es: un request invalido (400).
+        if (feed == null || feed.stream().anyMatch(
+                r -> r == null || r.externalRef() == null || r.externalRef().isBlank())) {
+            throw new IllegalArgumentException(
+                    "El feed de conciliacion no puede ser nulo y cada registro requiere un externalRef no vacio.");
+        }
         return reconciliation.reconcile(feed);
     }
 
