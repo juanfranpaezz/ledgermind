@@ -54,4 +54,17 @@ public class LedgerExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
                 "La operacion viola una restriccion de integridad (p. ej. un valor unico duplicado).");
     }
+
+    /**
+     * Estado interno inesperado e irrecuperable. Caso de uso real: {@code MlDsaJournalSigner.verify()} no pudo
+     * verificar la firma del checkpoint porque la clave/firma persistida esta ESTRUCTURALMENTE corrupta (Base64
+     * invalido, X.509 roto). Eso NO es evidencia de tamper (la firma realista con Base64 valido devuelve false y
+     * delata el tamper); es una falla del SERVIDOR. La mapeamos a 500 DENTRO del contrato RFC 7807 con detail
+     * FIJO (no filtra internals): fail-loud, pero no un 500 crudo fuera de contrato.
+     */
+    @ExceptionHandler(IllegalStateException.class)
+    ProblemDetail handleIllegalState(IllegalStateException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR,
+                "No se pudo completar la operacion por un estado interno inesperado.");
+    }
 }
