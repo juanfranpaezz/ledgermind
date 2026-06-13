@@ -1,5 +1,8 @@
 package com.ledgermind.ledger;
 
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLong;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -31,6 +34,8 @@ public class TransferService {
     private final AccountRepository accounts;
     private final PostingRepository postings;
     private final TransactionTemplate tx;
+    /** Reintentos acumulados por conflicto transitorio. Observable para que un test afirme que hubo contencion real. */
+    private final AtomicLong retries = new AtomicLong(0);
 
     public TransferService(AccountRepository accounts,
                            PostingRepository postings,
@@ -46,12 +51,19 @@ public class TransferService {
         for (int attempt = 1; ; attempt++) {
             try {
                 return tx.execute(status -> apply(cmd));
-            } catch (ObjectOptimisticLockingFailureException conflict) {
-                // Perdimos la carrera por el saldo: el estado cambio mientras decidiamos.
+            } catch (ConcurrencyFailureException conflict) {
+                // Conflicto TRANSITORIO de concurrencia. Cubre AMBOS casos reintentables, que extienden
+                // ConcurrencyFailureException: (1) el optimista por @Version
+                // ({@link ObjectOptimisticLockingFailureException}) cuando dos transferencias chocan sobre
+                // la misma cuenta; y (2) el DEADLOCK de Postgres (40P01 -> CannotAcquireLockException) cuando
+                // dos transferencias opuestas (A->B y B->A) lockean las filas en orden inverso. Antes solo se
+                // atrapaba el optimista y el deadlock escapaba como 500 pese a ser perfectamente reintentable.
                 // La transaccion se revirtio entera (no escribimos nada). Reintentamos desde cero.
+                retries.incrementAndGet();
                 if (attempt >= MAX_ATTEMPTS) {
                     throw new TransferConflictException(attempt);
                 }
+                backoffBeforeRetry(attempt);   // backoff exponencial + jitter: corta el thundering herd
             } catch (DataIntegrityViolationException duplicate) {
                 // Carrera de IDEMPOTENCIA: otro request con la misma clave inserto primero y chocamos con
                 // la UNIQUE. La operacion YA quedo aplicada exactamente una vez -> devolvemos ese asiento
@@ -61,6 +73,28 @@ public class TransferService {
                         .orElseThrow(() -> duplicate);
                 return replayOrConflict(existing, cmd);
             }
+        }
+    }
+
+    /** Reintentos acumulados por conflicto transitorio (optimista o deadlock). Lo usa el spike de concurrencia
+     *  para afirmar que la contencion realmente se ejercito (un test que pasa sin un solo retry no prueba nada). */
+    public long retryCount() {
+        return retries.get();
+    }
+
+    /**
+     * Backoff exponencial ACOTADO + jitter antes de reintentar. Sin esto, bajo alta contencion los N perdedores
+     * recompiten en lockstep (thundering herd) y transferencias con saldo pueden agotar los reintentos y fallar
+     * con 409 aunque habia fondos. El tope (20 ms) mantiene la latencia y los tests acotados.
+     */
+    private static void backoffBeforeRetry(int attempt) {
+        long base = Math.min(20L, 1L << (attempt - 1));                        // 1,2,4,8,16 -> tope 20 ms
+        long sleepMs = base + ThreadLocalRandom.current().nextLong(base + 1);  // + jitter en [0, base]
+        try {
+            Thread.sleep(sleepMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new TransferConflictException(attempt);
         }
     }
 
@@ -86,6 +120,13 @@ public class TransferService {
         var existing = postings.findByIdempotencyKey(cmd.idempotencyKey());
         if (existing.isPresent()) {
             return replayOrConflict(existing.get(), cmd);
+        }
+
+        // 1.5) Invariante: una transferencia mueve dinero ENTRE dos cuentas DISTINTAS. Validarlo en Java
+        //      (ademas del CHECK posting_distinct_accounts en la DB) lo clasifica como un 400 limpio, no como
+        //      un 500 opaco por la violacion del CHECK que se colaria por el catch de idempotencia.
+        if (cmd.debitAccountId().equals(cmd.creditAccountId())) {
+            throw new IllegalArgumentException("No se puede transferir una cuenta a si misma.");
         }
 
         // 2) Cargamos las dos cuentas. Son entidades 'managed': sus cambios se flushean al commit
