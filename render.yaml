@@ -8,6 +8,11 @@ services:
     plan: free
     healthCheckPath: /actuator/health
     envVars:
+      # La instancia desplegada ES la demo navegable (escenario de auditor + Authorization Server
+      # embebido). Sin esto el perfil activo seria 'default': los /api/demo/* darian 404 y /mcp seria
+      # inalcanzable -> el link que el reviewer abre primero no funcionaria.
+      - key: SPRING_PROFILES_ACTIVE
+        value: demo
       - key: SPRING_DATASOURCE_USERNAME
         fromDatabase:
           name: ledgermind-db

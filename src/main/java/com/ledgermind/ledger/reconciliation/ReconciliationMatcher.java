@@ -3,6 +3,7 @@ package com.ledgermind.ledger.reconciliation;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -20,10 +21,13 @@ import java.util.stream.Collectors;
 public class ReconciliationMatcher {
 
     public ReconciliationReport reconcile(List<SettlementRecord> feed, List<LedgerEntry> ledger) {
+        // Null-safe por diseño: una ref nula colapsa a "" (un bucket de descuadre) en vez de reventar el
+        // groupingBy con un NPE. El borde (controller) ya rechaza refs vacias; esto blinda al matcher como
+        // funcion pura ante CUALQUIER caller (incl. la demo) sin acoplarlo a esa validacion.
         Map<String, Long> feedByRef = feed.stream().collect(Collectors.groupingBy(
-                SettlementRecord::externalRef, Collectors.summingLong(SettlementRecord::amount)));
+                r -> Objects.requireNonNullElse(r.externalRef(), ""), Collectors.summingLong(SettlementRecord::amount)));
         Map<String, Long> ledgerByRef = ledger.stream().collect(Collectors.groupingBy(
-                LedgerEntry::ref, Collectors.summingLong(LedgerEntry::amount)));
+                le -> Objects.requireNonNullElse(le.ref(), ""), Collectors.summingLong(LedgerEntry::amount)));
 
         List<Discrepancy> discrepancies = new ArrayList<>();
         int matched = 0;
