@@ -13,6 +13,15 @@ services:
       # inalcanzable -> el link que el reviewer abre primero no funcionaria.
       - key: SPRING_PROFILES_ACTIVE
         value: demo
+      # Render rutea el trafico externo al puerto de PORT. La app escucha en 8080 (server.port default),
+      # asi que le decimos a Render que ese es el puerto -> ruteo determinista (sin depender del autoscan).
+      # Ademas mantiene valido el jwk-set-uri co-ubicado (http://localhost:8080/oauth2/jwks).
+      - key: PORT
+        value: "8080"
+      # Free tier = 512 MB RAM. Cap del heap al 75% del contenedor para no OOM-ear, preservando UTC
+      # (este env pisa el JAVA_TOOL_OPTIONS del Dockerfile, por eso repetimos -Duser.timezone=UTC).
+      - key: JAVA_TOOL_OPTIONS
+        value: "-Duser.timezone=UTC -XX:MaxRAMPercentage=75.0"
       - key: SPRING_DATASOURCE_USERNAME
         fromDatabase:
           name: ledgermind-db

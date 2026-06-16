@@ -1,0 +1,68 @@
+# Stack de observabilidad COMPLETO: app + Postgres + Prometheus + Grafana, todo junto.
+# Pensado para correr always-on en el VPS (o local para sacar el screenshot del dashboard).
+#
+#   docker compose -f docker-compose.observability.yml up --build -d
+#
+# Luego:
+#   - Grafana:    http://<host>:3000   (dashboard "LedgerMind — Observabilidad" ya provisionado; anonimo read-only)
+#   - Prometheus: http://<host>:9090
+#   - App/demo:   http://<host>:8080
+#
+# Para generar tráfico y ver los paneles moverse, tocá los botones del demo en :8080 (o pegale al /api).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ledgermind
+      POSTGRES_USER: ledgermind
+      POSTGRES_PASSWORD: ledgermind
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgermind -d ledgermind"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - ledgermind-pgdata:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: demo
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ledgermind
+      SPRING_DATASOURCE_USERNAME: ledgermind
+      SPRING_DATASOURCE_PASSWORD: ledgermind
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  prometheus:
+    image: prom/prometheus:latest   # en prod: pinnear una version
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - app
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest   # en prod: pinnear una version
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # Anonimo read-only: cualquiera abre el dashboard sin login (ideal para mostrar en una entrevista).
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+
+volumes:
+  ledgermind-pgdata:

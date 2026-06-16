@@ -1,5 +1,7 @@
 package com.ledgermind.ledger;
 
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.dao.ConcurrencyFailureException;
@@ -39,12 +41,20 @@ public class TransferService {
 
     public TransferService(AccountRepository accounts,
                            PostingRepository postings,
-                           PlatformTransactionManager txManager) {
+                           PlatformTransactionManager txManager,
+                           MeterRegistry meterRegistry) {
         this.accounts = accounts;
         this.postings = postings;
         // Transacciones programaticas: necesitamos controlar el limite transaccional a mano
         // para que el retry quede AFUERA (cada intento = transaccion nueva).
         this.tx = new TransactionTemplate(txManager);
+        // Exponemos los reintentos como gauge de Micrometer: es la PRESION DE CONCURRENCIA observable
+        // en Prometheus/Grafana. Sube cuando dos transferencias chocan sobre la misma cuenta (optimistic
+        // lock perdido) o se deadlockean (40P01). Es el MISMO contador que el spike de concurrencia afirma
+        // > 0; aca ademas sirve como telemetria operativa (no es un hook de test acoplado).
+        Gauge.builder("ledgermind.transfer.retries", retries, AtomicLong::get)
+                .description("Reintentos acumulados de transferencia por conflicto transitorio (optimistic lock o deadlock)")
+                .register(meterRegistry);
     }
 
     public Posting transfer(TransferCommand cmd) {

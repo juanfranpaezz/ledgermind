@@ -46,10 +46,17 @@ management:
   endpoints:
     web:
       exposure:
-        include: health   # info/prometheus fuera de la superficie publica (evita fuga de metricas operativas)
+        # prometheus = el endpoint que scrapea Prometheus (Micrometer -> Prometheus -> Grafana). Lo consume
+        # Prometheus por la RED INTERNA del compose (app:8080), no se publica al internet. En prod iria en un
+        # management port aparte o detras de auth; aca es un demo y las metricas no son secretos sensibles.
+        include: health,prometheus
   endpoint:
     health:
       show-details: when_authorized
   metrics:
     tags:
       application: ledgermind
+    distribution:
+      percentiles-histogram:
+        # Publica los buckets del Timer http.server.requests -> permite p95/p99 via histogram_quantile en Grafana.
+        http.server.requests: true
