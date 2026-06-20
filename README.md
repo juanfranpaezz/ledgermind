@@ -17,7 +17,7 @@ LedgerMind es el motor de cuentas y movimientos de una fintech: registra dinero 
 
 Encima del ledger hay dos cosas que lo separan de un CRUD:
 
-1. **Un servidor MCP** (Model Context Protocol) que deja a un agente de IA **consultar y auditar** el ledger — nunca mover dinero —, protegido con **OAuth2.1** y *scopes* mínimos por herramienta.
+1. **Un servidor MCP** (Model Context Protocol) que deja a un agente de IA **consultar y auditar** el ledger — nunca mover dinero —, protegido con **OAuth2.1**: cada herramienta enforza el scope con `@PreAuthorize`, y como las cuatro son **solo lectura** comparten el único scope `ledger.read` (ver la nota de granularidad en [Alcance y límites honestos](#alcance-y-límites-honestos)).
 2. **Una escalera de auditabilidad** que hace el journal *tamper-evident*: hash-chain → checkpoint firmado con criptografía **post-cuántica** → una herramienta MCP con la que el propio agente verifica la integridad.
 
 > Está construido para ser **defendible**: cada decisión tiene su porqué y sus límites están escritos, no escondidos (ver [Alcance y límites honestos](#alcance-y-límites-honestos)).
@@ -59,7 +59,7 @@ flowchart TB
     AG["Agente IA<br/>(MCP client)"]
 
     U -->|HTTP| API["REST API<br/>/api/**"]
-    AG -->|"MCP · OAuth2.1 Bearer"| MCP["MCP Server<br/>/mcp · scope por tool"]
+    AG -->|"MCP · OAuth2.1 Bearer"| MCP["MCP Server<br/>/mcp · scope ledger.read (solo lectura)"]
 
     API --> SVC["LedgerService"]
     MCP --> SVC
@@ -122,7 +122,7 @@ docker compose up -d
 | `GET`  | `/api/journal/audit` | Auditoría consolidada con veredicto legible (= tool MCP). |
 | `POST` | `/api/reconciliation` | Reconcilia un feed de liquidación del PSP contra el ledger (matching determinista por referencia). |
 
-**MCP** (`/mcp`, OAuth2.1 — *scope* `ledger.read` por tool + validación de **audiencia**, **solo lectura**)
+**MCP** (`/mcp`, OAuth2.1 — las 4 tools enforzan el *scope* `ledger.read` (único, solo lectura) + validación de **audiencia**)
 
 | Tool | Qué hace |
 |------|----------|
@@ -156,7 +156,7 @@ La suite (`./mvnw verify`, contra Postgres real), entre otros:
 - **Spike de concurrencia** — 50 transferencias en paralelo sobre una cuenta con saldo limitado: se verifica conservación del dinero, no-sobregiro y doble-entrada global.
 - **Idempotencia exactly-once** — 24 requests con la misma clave en paralelo reciben el mismo asiento (replay, no 500); reusar la clave con otros parámetros → 409.
 - **Runtime de ML-DSA** — prueba que BouncyCastle *realmente firma y verifica* (no solo que compila), y rechaza datos alterados y claves ajenas.
-- **Seguridad MCP** — enforcement del scope `ledger.read` por tool + el SAS emite `aud=ledgermind-mcp` (validación de audiencia).
+- **Seguridad MCP** — cada tool enforza el scope `ledger.read` (con `SCOPE_otra` → `AccessDeniedException`, probado al invocar, no solo que la anotación está) + el SAS emite `aud=ledgermind-mcp` (validación de audiencia).
 - **Tamper-evidence** — edita un asiento por SQL directo y verifica que la cadena lo detecta y la firma queda disociada.
 - **Reconciliación** — matcher determinista que cuadra y clasifica los 4 descuadres (incl. refs duplicadas del PSP que se agregan, sin cuadrar en falso).
 
@@ -169,6 +169,7 @@ Esto es un **proyecto de demostración**; los límites están escritos a propós
 - **Dinero simulado** — es una demostración de capacidad, no un sistema con compliance certificado.
 - **Clave de firma efímera** — se genera al arranque. En producción la privada vive en **HSM/KMS** y la pública se **ancla fuera de la DB**; la verificación de firma prueba *integridad-de-mensaje*, no *autenticidad* del firmante sin ese ancla.
 - **Tamper-EVIDENCE, no prevención** — un actor con escritura total en la DB puede reescribir contenido + cadena + checkpoint de forma consistente; lo que sube el costo y lo hace detectable es anclar externamente (HSM + log de transparencia + WORM). La auditoría **no** detecta por sí sola el *truncado* de la cola sin un *high-water-mark* externo.
+- **Un solo scope para las cuatro tools MCP** — la granularidad es de *enforcement* (cada tool chequea su `@PreAuthorize`), no de *privilegio*: las cuatro piden el mismo `ledger.read`, porque **todas son de solo lectura** y un único scope alcanza. El día que se agregue una tool que cambie estado (o un segundo cliente con menor confianza que deba auditar pero no reconciliar), el siguiente paso documentado es separar en `ledger.audit` / `ledger.reconcile` para tener mínimo privilegio real por capacidad. Hoy sería ceremonia.
 - **`/api` abierto en la demo** — solo `/mcp` está bajo OAuth (con validación de audiencia); en producción el read-model también iría con auth. Los endpoints `/api/demo/*` (reset/tamper) existen solo bajo el perfil `demo` y están rate-limitados.
 - **`verify()` es O(n)** — a escala real, el paso siguiente es Merkle + verificación incremental desde el último checkpoint.
 - **Reconciliación con feed simulado** — el matching es por referencia + importe exactos (sin tolerancia, ventana T+N ni multi-moneda); en prod el feed vendría del archivo real del PSP y se reconciliaría por ventana. Asume `idempotencyKey == id de orden del cliente` como eje de correlación.
@@ -184,6 +185,6 @@ Esto es un **proyecto de demostración**; los límites están escritos a propós
 <details>
 <summary><b>English summary</b></summary>
 
-LedgerMind is a payments backend in Java/Spring Boot: an **append-only double-entry ledger** with exact integer money, **exactly-once idempotency**, and explicit **concurrency control** (optimistic locking + retry), proven by a Testcontainers concurrency test. It exposes **read-only MCP tools** (Spring AI) to an AI agent behind an **OAuth2.1** resource server with per-tool scopes and **audience validation** (confused-deputy defense). On top sits a **three-layer auditability ladder**: a SHA-256 **hash-chain** (tamper-evidence), a **post-quantum ML-DSA / FIPS 204 signature** of the chain head (Signed Tree Head), and an MCP tool (`verify_journal_integrity`) that lets the agent audit the journal itself. A **reconciliation** module deterministically matches a PSP settlement feed against the ledger and classifies discrepancies (the AI only narrates them; the code decides). Limitations (ephemeral demo key, tamper-evidence vs prevention, O(n) verification, simulated feed) are documented on purpose. See [`docs/adr/`](docs/adr) for the rationale behind each decision.
+LedgerMind is a payments backend in Java/Spring Boot: an **append-only double-entry ledger** with exact integer money, **exactly-once idempotency**, and explicit **concurrency control** (optimistic locking + retry), proven by a Testcontainers concurrency test. It exposes **read-only MCP tools** (Spring AI) to an AI agent behind an **OAuth2.1** resource server: each tool enforces the scope with `@PreAuthorize`, and since all four are read-only they share the single `ledger.read` scope (per-tool *enforcement*, one shared *privilege*) plus **audience validation** (confused-deputy defense). On top sits a **three-layer auditability ladder**: a SHA-256 **hash-chain** (tamper-evidence), a **post-quantum ML-DSA / FIPS 204 signature** of the chain head (Signed Tree Head), and an MCP tool (`verify_journal_integrity`) that lets the agent audit the journal itself. A **reconciliation** module deterministically matches a PSP settlement feed against the ledger and classifies discrepancies (the AI only narrates them; the code decides). Limitations (ephemeral demo key, tamper-evidence vs prevention, O(n) verification, simulated feed) are documented on purpose. See [`docs/adr/`](docs/adr) for the rationale behind each decision.
 
 </details>
