@@ -12,11 +12,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Firma periodicamente la cabeza de la hash-chain (Signed Tree Head). Lee el {@link PostingHash} de
- * mayor seq, y si la cabeza cambio desde el ultimo checkpoint, firma un mensaje canonico con
- * {@link JournalSigner} (ML-DSA) y guarda un {@link JournalCheckpoint} inmutable.
+ * mayor seq, y si la cabeza cambio desde el ultimo checkpoint, firma un mensaje canonico con el firmante
+ * ACTIVO (resuelto por {@link JournalSignerRegistry}; default ML-DSA-65) y guarda un {@link JournalCheckpoint}
+ * inmutable que persiste el algoritmo + la clave publica usados.
+ *
+ * <p>Crypto-agility (firma + verificacion). FIRMA: el esquema activo es configurable
+ * ({@code ledgermind.journal.signer.algorithm}) y se persiste por checkpoint. VERIFICACION: se DESPACHA por
+ * el {@code algorithm} del checkpoint via {@link JournalSignerRegistry} -> cada checkpoint se verifica con
+ * SU esquema, soportando >1 algoritmo en paralelo y permitiendo rotar sin dejar ciegos los checkpoints viejos.
  *
  * <p>Corre ASINCRONO, despues del {@link JournalChainer}: la cadena encadena asientos, este servicio
- * la ancla con una firma post-cuantica. Idempotente CON UN UNICO ESCRITOR (compara headHash antes de
+ * la ancla con una firma. Idempotente CON UN UNICO ESCRITOR (compara headHash antes de
  * firmar); el scheduler default es single-thread, asi que no se solapa consigo mismo. En HA (2+ replicas)
  * el {@code UNIQUE (chain_seq)} de la tabla degrada la carrera a un INSERT que falla en la 2da replica.
  */
@@ -28,16 +34,21 @@ public class JournalCheckpointService {
     private final PostingHashRepository hashes;
     private final JournalCheckpointRepository checkpoints;
     private final JournalChainer chainer;
-    private final JournalSigner signer;
+    private final JournalSignerRegistry signers;
+    private final String activeAlgorithm;
 
     public JournalCheckpointService(PostingHashRepository hashes,
                                     JournalCheckpointRepository checkpoints,
                                     JournalChainer chainer,
-                                    JournalSigner signer) {
+                                    JournalSignerRegistry signers,
+                                    @org.springframework.beans.factory.annotation.Value(
+                                            "${ledgermind.journal.signer.algorithm:ML-DSA-65}")
+                                    String activeAlgorithm) {
         this.hashes = hashes;
         this.checkpoints = checkpoints;
         this.chainer = chainer;
-        this.signer = signer;
+        this.signers = signers;
+        this.activeAlgorithm = activeAlgorithm;
     }
 
     /** Firma la cabeza si avanzo desde el ultimo checkpoint. Async (cada 10s); tambien llamable en tests. */
@@ -52,6 +63,9 @@ public class JournalCheckpointService {
         if (last != null && last.getHeadHash().equals(head.getEntryHash())) {
             return Optional.empty();                                   // cabeza sin cambios: ya esta firmada
         }
+        // Firma con el esquema ACTIVO (configurable; default ML-DSA-65). El algoritmo y la clave publica
+        // se persisten EN el checkpoint -> la verificacion despacha por ese nombre, no por el firmante de HOY.
+        JournalSigner signer = signers.activeSigner(activeAlgorithm);
         byte[] message = checkpointMessage(head.getSeq(), head.getEntryHash());
         String signature = signer.sign(message);
         JournalCheckpoint cp = new JournalCheckpoint(head.getSeq(), head.getEntryHash(),
@@ -140,7 +154,10 @@ public class JournalCheckpointService {
 
     /** Señales del checkpoint que NO requieren recomputar toda la cadena (firma + presencia + si es la cabeza). */
     private Signals signalsFor(JournalCheckpoint cp) {
-        boolean signatureValid = signer.verify(
+        // DISPATCH POR ALGORITMO: se verifica con el esquema que el PROPIO checkpoint registro (cp.getAlgorithm()),
+        // NO con el firmante activo de hoy. Asi un checkpoint firmado con Ed25519 se verifica con Ed25519 y uno
+        // con ML-DSA con ML-DSA, soportando >1 esquema en paralelo (crypto-agility "hacia atras" completa).
+        boolean signatureValid = signers.verify(cp.getAlgorithm(),
                 checkpointMessage(cp.getChainSeq(), cp.getHeadHash()), cp.getSignature(), cp.getPublicKey());
         boolean signedHeadStillInChain = hashes.findBySeq(cp.getChainSeq())
                 .map(h -> h.getEntryHash().equals(cp.getHeadHash()))
