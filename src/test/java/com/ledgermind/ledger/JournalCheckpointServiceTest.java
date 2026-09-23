@@ -83,6 +83,29 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
+    void reescribir_SOLO_la_columna_algorithm_invalida_la_firma() {
+        ledger.createAccount("external:funding", "ARS", true);
+        ledger.createAccount("wallet:a", "ARS", false);
+        ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
+        chainer.chainPendingPostings();
+        checkpoints.checkpointIfHeadAdvanced();
+
+        // baseline: firma valida con el algoritmo correcto.
+        assertThat(checkpoints.verifyLatest().signatureValid()).isTrue();
+
+        // Un escritor de DB reescribe SOLO la columna `algorithm` (firma y clave INTACTAS) para colar un
+        // esquema FALSO. El algoritmo es metadata de confianza: tiene que entrar DENTRO del lazo de
+        // verificacion, no quedar como rotulo. Sin ese check, signatureValid seguiria en true y el verdict
+        // imprimiria "Ed25519 verificada OK".
+        jdbc.update("UPDATE journal_checkpoint SET algorithm = ? "
+                + "WHERE chain_seq = (SELECT max(chain_seq) FROM journal_checkpoint)", "Ed25519");
+
+        var tampered = checkpoints.verifyLatest();
+        assertThat(tampered.signatureValid()).isFalse();   // el algoritmo declarado ya no coincide con el verificador
+        assertThat(checkpoints.audit().tamperDetected()).isTrue();
+    }
+
+    @Test
     void un_checkpoint_atrasado_NO_es_un_tamper() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);

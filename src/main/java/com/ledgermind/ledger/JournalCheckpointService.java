@@ -140,7 +140,14 @@ public class JournalCheckpointService {
 
     /** Señales del checkpoint que NO requieren recomputar toda la cadena (firma + presencia + si es la cabeza). */
     private Signals signalsFor(JournalCheckpoint cp) {
-        boolean signatureValid = signer.verify(
+        // El ALGORITMO declarado en el checkpoint es metadata de confianza: tiene que entrar DENTRO del lazo de
+        // verificacion, no quedar como rotulo decorativo. Si un escritor de DB reescribe SOLO la columna
+        // `algorithm` (firma y clave intactas), sin este check `signatureValid` seguiria en true y el verdict
+        // imprimiria un esquema falso ("Ed25519 verificada OK"). Lo atamos al signer que de hecho verifica.
+        // (v1 = un unico signer ML-DSA cableado: la agility REAL es un JournalSignerRegistry con dispatch por
+        //  algorithm() para verificar checkpoints viejos tras una rotacion; ver JournalSigner javadoc.)
+        boolean algorithmMatches = signer.algorithm().equals(cp.getAlgorithm());
+        boolean signatureValid = algorithmMatches && signer.verify(
                 checkpointMessage(cp.getChainSeq(), cp.getHeadHash()), cp.getSignature(), cp.getPublicKey());
         boolean signedHeadStillInChain = hashes.findBySeq(cp.getChainSeq())
                 .map(h -> h.getEntryHash().equals(cp.getHeadHash()))
