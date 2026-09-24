@@ -2,7 +2,9 @@ package com.ledgermind.ledger;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -29,15 +31,18 @@ public class JournalCheckpointService {
     private final JournalCheckpointRepository checkpoints;
     private final JournalChainer chainer;
     private final JournalSigner signer;
+    private final AccountBalanceVerifier balances;
 
     public JournalCheckpointService(PostingHashRepository hashes,
                                     JournalCheckpointRepository checkpoints,
                                     JournalChainer chainer,
-                                    JournalSigner signer) {
+                                    JournalSigner signer,
+                                    AccountBalanceVerifier balances) {
         this.hashes = hashes;
         this.checkpoints = checkpoints;
         this.chainer = chainer;
         this.signer = signer;
+        this.balances = balances;
     }
 
     /** Firma la cabeza si avanzo desde el ultimo checkpoint. Async (cada 10s); tambien llamable en tests. */
@@ -118,24 +123,42 @@ public class JournalCheckpointService {
     @Transactional(readOnly = true)
     public JournalIntegrityReport audit() {
         JournalChainer.VerifyResult chain = chainer.verify();
+        // Los contadores de saldo NUNCA se recomputan en el camino de escritura (se adelantan con +=), asi
+        // que el read-model puede quedar en desacuerdo con el journal aunque la hash-chain no se rompa.
+        // Se re-derivan ACA, dentro del mismo veredicto que ya leen la API, el tool MCP y la demo: un
+        // chequeo que el verdict no mira es decorativo.
+        AccountBalanceVerifier.BalanceVerifyResult bal = balances.verify();
         JournalCheckpoint cp = checkpoints.findTopByOrderByIdDesc().orElse(null);
         if (cp == null) {
-            boolean tampered = !chain.intact();
-            String verdict = tampered
-                    ? "MANIPULACION DETECTADA: la hash-chain se rompe en seq " + chain.brokenAtSeq()
-                            + " (aun sin checkpoint firmado)."
-                    : "SIN CHECKPOINT FIRMADO: la hash-chain presente recomputa consistente sobre "
-                            + chain.chainedCount() + " asientos, pero sin un checkpoint firmado que ancle la"
-                            + " cabeza NO se puede descartar un truncado/rollback previo. Aun no hay firma ML-DSA.";
+            boolean tampered = !chain.intact() || !bal.consistent();
+            String verdict;
+            if (!tampered) {
+                verdict = "SIN CHECKPOINT FIRMADO: la hash-chain presente recomputa consistente sobre "
+                        + chain.chainedCount() + " asientos y los contadores de saldo de "
+                        + bal.accountsChecked() + " cuenta(s) cierran contra el replay del journal, pero sin"
+                        + " un checkpoint firmado que ancle la cabeza NO se puede descartar un"
+                        + " truncado/rollback previo. Aun no hay firma ML-DSA.";
+            } else {
+                StringBuilder sb = new StringBuilder("MANIPULACION DETECTADA:");
+                if (!chain.intact()) {
+                    sb.append(" la hash-chain se rompe en seq ").append(chain.brokenAtSeq())
+                            .append(" (aun sin checkpoint firmado);");
+                }
+                appendBalanceClause(sb, bal);
+                verdict = sb.toString();
+            }
             return new JournalIntegrityReport(tampered, verdict, chain.intact(), chain.chainedCount(),
-                    chain.brokenAtSeq(), false, null, 0L, null, false, false, false, null);
+                    chain.brokenAtSeq(), false, null, 0L, null, false, false, false, null,
+                    bal.consistent(), bal.accountsChecked(), bal.mismatches());
         }
         Signals s = signalsFor(cp);
-        boolean tampered = !chain.intact() || !s.signatureValid() || !s.signedHeadStillInChain();
-        return new JournalIntegrityReport(tampered, verdict(chain, cp, s, tampered),
+        boolean tampered = !chain.intact() || !s.signatureValid() || !s.signedHeadStillInChain()
+                || !bal.consistent();
+        return new JournalIntegrityReport(tampered, verdict(chain, cp, s, bal, tampered),
                 chain.intact(), chain.chainedCount(), chain.brokenAtSeq(),
                 true, cp.getAlgorithm(), cp.getChainSeq(), cp.getHeadHash(),
-                s.signatureValid(), s.signedHeadStillInChain(), s.isLatestHead(), cp.getSignedAt());
+                s.signatureValid(), s.signedHeadStillInChain(), s.isLatestHead(), cp.getSignedAt(),
+                bal.consistent(), bal.accountsChecked(), bal.mismatches());
     }
 
     /** Señales del checkpoint que NO requieren recomputar toda la cadena (firma + presencia + si es la cabeza). */
@@ -158,9 +181,12 @@ public class JournalCheckpointService {
     }
 
     private static String verdict(JournalChainer.VerifyResult chain, JournalCheckpoint cp,
-                                  Signals s, boolean tampered) {
+                                  Signals s, AccountBalanceVerifier.BalanceVerifyResult bal,
+                                  boolean tampered) {
         if (!tampered) {
-            return "SIN EVIDENCIA DE EDICION: la hash-chain recomputa limpia sobre " + chain.chainedCount()
+            return "SIN EVIDENCIA DE EDICION: los contadores de saldo de " + bal.accountsChecked()
+                    + " cuenta(s) recomputan iguales al replay de " + bal.postingsReplayed()
+                    + " asiento(s), la hash-chain recomputa limpia sobre " + chain.chainedCount()
                     + " asientos y la firma del ultimo checkpoint (" + cp.getAlgorithm() + ", seq "
                     + cp.getChainSeq() + ", firmado " + cp.getSignedAt() + ") cierra bajo la clave que el"
                     + " propio checkpoint guarda (integridad-de-mensaje, NO autenticidad: probar QUIEN firmo"
@@ -178,7 +204,25 @@ public class JournalCheckpointService {
         if (!s.signedHeadStillInChain()) {
             sb.append(" el eslabon firmado (seq ").append(cp.getChainSeq()).append(") fue reescrito;");
         }
+        appendBalanceClause(sb, bal);
         return sb.toString();
+    }
+
+    /**
+     * Agrega al verdict el descuadre contador-vs-journal: la cuenta, los DOS numeros y la diferencia. El
+     * saldo cacheado y el journal pueden discrepar SIN que la cadena se rompa (p.ej. si el asiento editado
+     * todavia no estaba encadenado), asi que esta clausula no es redundante con la de la hash-chain.
+     */
+    private static void appendBalanceClause(StringBuilder sb, AccountBalanceVerifier.BalanceVerifyResult bal) {
+        if (bal.consistent()) {
+            return;
+        }
+        sb.append(" los contadores de saldo NO cierran contra el journal en ")
+                .append(bal.mismatches().size()).append(" cuenta(s) [")
+                .append(bal.mismatches().stream()
+                        .map(AccountBalanceVerifier.AccountBalanceMismatch::describe)
+                        .collect(Collectors.joining("; ")))
+                .append("];");
     }
 
     private record Signals(boolean signatureValid, boolean signedHeadStillInChain, boolean isLatestHead) {
@@ -216,6 +260,8 @@ public class JournalCheckpointService {
                                          boolean checkpointPresent, String signatureAlgorithm,
                                          long signedChainSeq, String signedHeadHash,
                                          boolean signatureValid, boolean signedHeadStillInChain,
-                                         boolean signedHeadIsLatest, Instant signedAt) {
+                                         boolean signedHeadIsLatest, Instant signedAt,
+                                         boolean balancesConsistent, long accountsChecked,
+                                         List<AccountBalanceVerifier.AccountBalanceMismatch> balanceMismatches) {
     }
 }

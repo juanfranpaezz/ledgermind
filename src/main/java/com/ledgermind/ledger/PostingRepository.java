@@ -13,6 +13,12 @@ public interface PostingRepository extends JpaRepository<Posting, Long> {
     List<Posting> findByDebitAccountIdOrCreditAccountIdOrderByIdDesc(Long debitAccountId, Long creditAccountId);
 
     /**
+     * Asientos con id MAYOR a {@code afterId}, ascendente y de a lotes: paginacion keyset para replayar el
+     * journal entero (ver {@link AccountBalanceVerifier}) sin cargarlo en memoria ni pagar el offset.
+     */
+    List<Posting> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
+
+    /**
      * Asientos que todavia NO tienen eslabon en la hash-chain, en orden de id, de a lotes.
      * Se busca por AUSENCIA en {@code posting_hash} (no por un watermark de id): asi un asiento cuyo id
      * IDENTITY es menor pero commitea DESPUES del watermark no queda nunca sin encadenar (no se saltea).
