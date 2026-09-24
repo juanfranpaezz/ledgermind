@@ -2,6 +2,7 @@ package com.ledgermind.ledger.web;
 
 import com.ledgermind.ledger.AccountNotFoundException;
 import com.ledgermind.ledger.IdempotencyConflictException;
+import com.ledgermind.ledger.AccountFrozenException;
 import com.ledgermind.ledger.InsufficientFundsException;
 import com.ledgermind.ledger.TransferConflictException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -25,6 +26,16 @@ public class LedgerExceptionHandler {
     @ExceptionHandler(InsufficientFundsException.class)
     ProblemDetail handleInsufficientFunds(InsufficientFundsException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+    }
+
+    /** 423 Locked: la cuenta esta congelada por el barrido de sobregiro; no es un 500 ni un saldo insuficiente. */
+    @ExceptionHandler(AccountFrozenException.class)
+    ProblemDetail handleFrozen(AccountFrozenException e) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.LOCKED, e.getMessage());
+        pd.setTitle("Cuenta congelada por sobregiro");
+        pd.setProperty("accountId", e.getAccountId());
+        pd.setProperty("overdraftFlagId", e.getFlagId());
+        return pd;
     }
 
     @ExceptionHandler(TransferConflictException.class)

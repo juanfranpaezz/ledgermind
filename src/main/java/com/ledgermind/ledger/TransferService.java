@@ -35,16 +35,19 @@ public class TransferService {
 
     private final AccountRepository accounts;
     private final PostingRepository postings;
+    private final OverdraftSweeper freezes;
     private final TransactionTemplate tx;
     /** Reintentos acumulados por conflicto transitorio. Observable para que un test afirme que hubo contencion real. */
     private final AtomicLong retries = new AtomicLong(0);
 
     public TransferService(AccountRepository accounts,
                            PostingRepository postings,
+                           OverdraftSweeper freezes,
                            PlatformTransactionManager txManager,
                            MeterRegistry meterRegistry) {
         this.accounts = accounts;
         this.postings = postings;
+        this.freezes = freezes;
         // Transacciones programaticas: necesitamos controlar el limite transaccional a mano
         // para que el retry quede AFUERA (cada intento = transaccion nueva).
         this.tx = new TransactionTemplate(txManager);
@@ -138,6 +141,8 @@ public class TransferService {
         if (cmd.debitAccountId().equals(cmd.creditAccountId())) {
             throw new IllegalArgumentException("No se puede transferir una cuenta a si misma.");
         }
+        // Congelamiento por sobregiro (dec-151): UNA lectura indexada, sin re-derivar saldos en el camino caliente.
+        freezes.assertNotFrozen(cmd.debitAccountId(), cmd.creditAccountId());
 
         // 2) Cargamos las dos cuentas. Son entidades 'managed': sus cambios se flushean al commit
         //    con el chequeo de version (optimistic locking).
