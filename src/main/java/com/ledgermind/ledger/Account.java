@@ -80,7 +80,14 @@ public class Account {
         this.updatedAt = Instant.now();
     }
 
-    /** Saldo disponible en centavos: lo confirmado menos lo reservado. */
+    /**
+     * Saldo disponible en centavos: lo confirmado menos lo reservado.
+     *
+     * <p>Holds (two-phase reservations) are NOT implemented: no code path writes {@code pending_debits} or
+     * {@code pending_credits}, so both are always 0 and this equals {@code postedCredits - postedDebits}. The
+     * columns, the {@code pendingDebits} term here and in the overdraft sweep are reserved for a future hold
+     * flow (pinned by PendingCountersAndConservationTest).
+     */
     public long availableBalance() {
         return postedCredits - postedDebits - pendingDebits;
     }

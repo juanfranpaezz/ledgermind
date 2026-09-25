@@ -1,10 +1,8 @@
 package com.ledgermind.ledger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import org.springframework.data.domain.Limit;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,23 +21,41 @@ import org.springframework.transaction.annotation.Transactional;
  * y compara contra lo almacenado. Reporta la cuenta, los dos numeros y la diferencia. Es DETECCION: no
  * corrige el contador ni toca el camino de escritura.
  *
- * <p>LIMITE conocido: corre en una transaccion de solo lectura en READ COMMITTED, asi que una
- * transferencia que commitea ENTRE el barrido de asientos y el de cuentas puede producir un descuadre
- * TRANSITORIO (falso positivo). Es el lado seguro del error (avisa de mas, nunca de menos), pero para
- * correrlo bajo carga conviene un snapshot unico (REPEATABLE READ) o una replica quiescente.
+ * <p>Snapshot: the comparison is ONE SQL statement (every account LEFT JOIN a GROUP BY aggregate of the journal), so
+ * the stored counters and the journal sums come from the same statement snapshot even under READ COMMITTED; the
+ * earlier READ COMMITTED transient false positive (postings and accounts read by separate statements) no longer
+ * applies. {@link JournalCheckpointService#audit()} calls it inside its REPEATABLE READ transaction, so it also agrees
+ * with the hash-chain and coverage reads of the same audit.
+ *
+ * <p>Cost: the database aggregates every posting on every call (O(n) in the journal, no Posting or Account entity is
+ * hydrated). Conservation (sum of all posted_debits == sum of all posted_credits) is not checked separately: it is
+ * implied whenever {@code consistent} is true, because every posting row carries one amount, one debit account and one
+ * distinct credit account (FK to account), so the journal side is conserved by construction and consistent counters
+ * equal it account by account.
  */
 @Component
 public class AccountBalanceVerifier {
 
-    /** Tamanio de lote del replay: pagina por keyset (id) para no cargar el journal entero en memoria. */
-    private static final int BATCH = 500;
+    /**
+     * Replay as one statement: each account with its stored counters and the journal's debit/credit sums for it
+     * (0 when it has no postings), plus the journal size, all read in one statement snapshot. The inner UNION ALL /
+     * GROUP BY is the same projection OverdraftSweeper uses; the scalar count is evaluated once per statement.
+     */
+    private static final String REPLAY_SQL = "SELECT a.id, a.address, a.posted_debits, a.posted_credits,"
+            + " coalesce(j.d, 0) AS journal_debits, coalesce(j.c, 0) AS journal_credits,"
+            + " (SELECT count(*) FROM posting) AS postings_replayed"
+            + " FROM account a LEFT JOIN ("
+            + "   SELECT account_id, sum(d) AS d, sum(c) AS c FROM ("
+            + "     SELECT debit_account_id AS account_id, amount AS d, 0::bigint AS c FROM posting"
+            + "     UNION ALL"
+            + "     SELECT credit_account_id, 0::bigint, amount FROM posting"
+            + "   ) t GROUP BY account_id"
+            + " ) j ON j.account_id = a.id ORDER BY a.id";
 
-    private final AccountRepository accounts;
-    private final PostingRepository postings;
+    private final JdbcTemplate jdbc;
 
-    public AccountBalanceVerifier(AccountRepository accounts, PostingRepository postings) {
-        this.accounts = accounts;
-        this.postings = postings;
+    public AccountBalanceVerifier(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
     }
 
     /**
@@ -48,42 +64,23 @@ public class AccountBalanceVerifier {
      */
     @Transactional(readOnly = true)
     public BalanceVerifyResult verify() {
-        Replay replay = replayJournal();
         List<AccountBalanceMismatch> mismatches = new ArrayList<>();
-        long checked = 0;
-        for (Account a : accounts.findAll()) {
-            checked++;
-            long[] sums = replay.byAccountId().getOrDefault(a.getId(), new long[2]);
-            long journalDebits = sums[0];
-            long journalCredits = sums[1];
-            if (a.getPostedDebits() != journalDebits || a.getPostedCredits() != journalCredits) {
-                mismatches.add(new AccountBalanceMismatch(a.getId(), a.getAddress(),
-                        a.getPostedDebits(), journalDebits, a.getPostedDebits() - journalDebits,
-                        a.getPostedCredits(), journalCredits, a.getPostedCredits() - journalCredits));
+        long[] checkedAndReplayed = new long[2];
+        jdbc.query(REPLAY_SQL, rs -> {
+            checkedAndReplayed[0]++;
+            checkedAndReplayed[1] = rs.getLong("postings_replayed");
+            long storedDebits = rs.getLong("posted_debits");
+            long storedCredits = rs.getLong("posted_credits");
+            long journalDebits = rs.getLong("journal_debits");
+            long journalCredits = rs.getLong("journal_credits");
+            if (storedDebits != journalDebits || storedCredits != journalCredits) {
+                mismatches.add(new AccountBalanceMismatch(rs.getLong("id"), rs.getString("address"),
+                        storedDebits, journalDebits, storedDebits - journalDebits,
+                        storedCredits, journalCredits, storedCredits - journalCredits));
             }
-        }
-        return new BalanceVerifyResult(mismatches.isEmpty(), checked, replay.postingsReplayed(),
+        });
+        return new BalanceVerifyResult(mismatches.isEmpty(), checkedAndReplayed[0], checkedAndReplayed[1],
                 List.copyOf(mismatches));
-    }
-
-    /** Suma por cuenta: [0] = debitos, [1] = creditos. Pagina por id ascendente (keyset), sin N+1. */
-    private Replay replayJournal() {
-        Map<Long, long[]> byAccountId = new HashMap<>();
-        long replayed = 0;
-        long afterId = 0L;
-        List<Posting> batch;
-        while (!(batch = postings.findByIdGreaterThanOrderByIdAsc(afterId, Limit.of(BATCH))).isEmpty()) {
-            for (Posting p : batch) {
-                byAccountId.computeIfAbsent(p.getDebitAccountId(), k -> new long[2])[0] += p.getAmount();
-                byAccountId.computeIfAbsent(p.getCreditAccountId(), k -> new long[2])[1] += p.getAmount();
-                afterId = p.getId();
-                replayed++;
-            }
-        }
-        return new Replay(byAccountId, replayed);
-    }
-
-    private record Replay(Map<Long, long[]> byAccountId, long postingsReplayed) {
     }
 
     /**

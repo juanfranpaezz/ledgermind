@@ -15,8 +15,9 @@ public interface PostingRepository extends JpaRepository<Posting, Long> {
     List<Posting> findByDebitAccountIdOrCreditAccountIdOrderByIdDesc(Long debitAccountId, Long creditAccountId);
 
     /**
-     * Asientos con id MAYOR a {@code afterId}, ascendente y de a lotes: paginacion keyset para replayar el
-     * journal entero (ver {@link AccountBalanceVerifier}) sin cargarlo en memoria ni pagar el offset.
+     * Asientos con id MAYOR a {@code afterId}, ascendente y de a lotes: paginacion keyset del journal entero sin
+     * pagar el offset. No longer used by {@link AccountBalanceVerifier}, which now aggregates the journal in one
+     * SQL statement; currently no caller in src/main.
      */
     List<Posting> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
 
