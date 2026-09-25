@@ -5,10 +5,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,11 +24,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Firma periodicamente la cabeza de la hash-chain (Signed Tree Head). Lee el {@link PostingHash} de
- * mayor seq, y si la cabeza cambio desde el ultimo checkpoint, firma un mensaje canonico con
- * {@link JournalSigner} (ML-DSA) y guarda un {@link JournalCheckpoint} inmutable.
+ * mayor seq, y si la cabeza cambio desde el ultimo checkpoint, firma un mensaje canonico con el firmante
+ * ACTIVO (resuelto por {@link JournalSignerRegistry}; default ML-DSA-65) y guarda un {@link JournalCheckpoint}
+ * inmutable que persiste el algoritmo + la clave publica usados.
+ *
+ * <p>Crypto-agility (firma + verificacion). FIRMA: el esquema activo es configurable
+ * ({@code ledgermind.journal.signer.algorithm}) y se persiste por checkpoint. VERIFICACION: se DESPACHA por
+ * el {@code algorithm} del checkpoint via {@link JournalSignerRegistry} -> cada checkpoint se verifica con
+ * SU esquema, soportando >1 algoritmo en paralelo y permitiendo rotar sin dejar ciegos los checkpoints viejos.
  *
  * <p>Corre ASINCRONO, despues del {@link JournalChainer}: la cadena encadena asientos, este servicio
- * la ancla con una firma post-cuantica. Idempotente CON UN UNICO ESCRITOR (compara headHash antes de
+ * la ancla con una firma. Idempotente CON UN UNICO ESCRITOR (compara headHash antes de
  * firmar); el scheduler default es single-thread, asi que no se solapa consigo mismo. En HA (2+ replicas)
  * el {@code UNIQUE (chain_seq)} de la tabla degrada la carrera a un INSERT que falla en la 2da replica.
  */
@@ -37,7 +46,8 @@ public class JournalCheckpointService {
     private final PostingHashRepository hashes;
     private final JournalCheckpointRepository checkpoints;
     private final JournalChainer chainer;
-    private final JournalSigner signer;
+    private final JournalSignerRegistry signers;
+    private final String activeAlgorithm;
     private final AccountBalanceVerifier balances;
     private final PostingRepository postings;
     /** Ventana en la que un asiento sin eslabon es legitimo; ver {@link #effectiveUnchainedGraceMs}. */
@@ -48,7 +58,8 @@ public class JournalCheckpointService {
     public JournalCheckpointService(PostingHashRepository hashes,
                                     JournalCheckpointRepository checkpoints,
                                     JournalChainer chainer,
-                                    JournalSigner signer,
+                                    JournalSignerRegistry signers,
+                                    @Value("${ledgermind.journal.signer.algorithm:ML-DSA-65}") String activeAlgorithm,
                                     AccountBalanceVerifier balances,
                                     PostingRepository postings,
                                     JdbcTemplate jdbc,
@@ -57,7 +68,8 @@ public class JournalCheckpointService {
         this.hashes = hashes;
         this.checkpoints = checkpoints;
         this.chainer = chainer;
-        this.signer = signer;
+        this.signers = signers;
+        this.activeAlgorithm = activeAlgorithm;
         this.balances = balances;
         this.postings = postings;
         this.unchainedGraceMs = effectiveUnchainedGraceMs(unchainedGraceMs, chainDelayMs);
@@ -89,6 +101,9 @@ public class JournalCheckpointService {
         if (last != null && last.getHeadHash().equals(head.getEntryHash())) {
             return Optional.empty();                                   // cabeza sin cambios: ya esta firmada
         }
+        // Firma con el esquema ACTIVO (configurable; default ML-DSA-65). El algoritmo y la clave publica
+        // se persisten EN el checkpoint -> la verificacion despacha por ese nombre, no por el firmante de HOY.
+        JournalSigner signer = signers.activeSigner(activeAlgorithm);
         byte[] message = checkpointMessage(head.getSeq(), head.getEntryHash());
         String signature = signer.sign(message);
         JournalCheckpoint cp = new JournalCheckpoint(head.getSeq(), head.getEntryHash(),
@@ -313,16 +328,43 @@ public class JournalCheckpointService {
         return checkpointPresent ? null : CoverageReason.SIN_CHECKPOINT;
     }
 
+    /**
+     * ¿La clave publica guardada en el checkpoint es del esquema que el checkpoint DECLARA? Compara el OID de
+     * algoritmo del SubjectPublicKeyInfo (X.509) de esa clave contra el de la clave del firmante registrado para el
+     * esquema declarado. Algoritmo NO registrado -> true aca a proposito: el {@code signers.verify} que sigue falla
+     * RUIDOSO (estructural, no tamper). Clave guardada que no parsea como X.509 -> {@link IllegalStateException}
+     * (estructural), con la misma disciplina que los firmantes.
+     */
+    private boolean keyMatchesDeclaredAlgorithm(JournalCheckpoint cp) {
+        if (!signers.supports(cp.getAlgorithm())) {
+            return true;
+        }
+        // activeSigner(nombre) es la busqueda por nombre del registry; aca solo se usa su clave publica.
+        String registeredKey = signers.activeSigner(cp.getAlgorithm()).publicKeyBase64();
+        return keyAlgorithmOid(registeredKey).equals(keyAlgorithmOid(cp.getPublicKey()));
+    }
+
+    private static ASN1ObjectIdentifier keyAlgorithmOid(String publicKeyBase64) {
+        try {
+            return SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKeyBase64))
+                    .getAlgorithm().getAlgorithm();
+        } catch (IllegalArgumentException structural) {
+            throw new IllegalStateException("La clave publica del checkpoint no es un SubjectPublicKeyInfo X.509 valido"
+                    + " (causa estructural, no evidencia de tamper)", structural);
+        }
+    }
+
     /** Señales del checkpoint que NO requieren recomputar toda la cadena (firma + presencia + si es la cabeza). */
     private Signals signalsFor(JournalCheckpoint cp) {
-        // El ALGORITMO declarado en el checkpoint es metadata de confianza: tiene que entrar DENTRO del lazo de
-        // verificacion, no quedar como rotulo decorativo. Si un escritor de DB reescribe SOLO la columna
-        // `algorithm` (firma y clave intactas), sin este check `signatureValid` seguiria en true y el verdict
-        // imprimiria un esquema falso ("Ed25519 verificada OK"). Lo atamos al signer que de hecho verifica.
-        // (v1 = un unico signer ML-DSA cableado: la agility REAL es un JournalSignerRegistry con dispatch por
-        //  algorithm() para verificar checkpoints viejos tras una rotacion; ver JournalSigner javadoc.)
-        boolean algorithmMatches = signer.algorithm().equals(cp.getAlgorithm());
-        boolean signatureValid = algorithmMatches && signer.verify(
+        // DISPATCH POR ALGORITMO (crypto-agility): se verifica con el esquema que el PROPIO checkpoint registro
+        // (cp.getAlgorithm()), NO con el firmante activo de hoy; asi un checkpoint viejo se sigue verificando tras
+        // una rotacion. Un algoritmo NO registrado falla RUIDOSO en el registry (estructural, no tamper).
+        // Y el ALGORITMO declarado sigue DENTRO del lazo de verificacion: si un escritor de DB reescribe SOLO la
+        // columna `algorithm` hacia OTRO esquema registrado (firma y clave intactas), el dispatch le pasaria una
+        // clave ML-DSA al verificador Ed25519, que la rechaza como falla ESTRUCTURAL (excepcion) y no como tamper.
+        // Por eso, antes de despachar, la clave publica guardada tiene que ser del esquema declarado (ver
+        // keyMatchesDeclaredAlgorithm): si no lo es, la metadata del checkpoint miente -> signatureValid = false.
+        boolean signatureValid = keyMatchesDeclaredAlgorithm(cp) && signers.verify(cp.getAlgorithm(),
                 checkpointMessage(cp.getChainSeq(), cp.getHeadHash()), cp.getSignature(), cp.getPublicKey());
         boolean signedHeadStillInChain = hashes.findBySeq(cp.getChainSeq())
                 .map(h -> h.getEntryHash().equals(cp.getHeadHash()))

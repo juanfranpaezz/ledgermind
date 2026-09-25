@@ -1,19 +1,28 @@
 package com.ledgermind.ledger;
 
 /**
- * Firma crypto-AGIL del journal. La implementacion v1 es ML-DSA (FIPS 204, post-cuantica); la interfaz
- * permite rotar a Ed25519 o a un hibrido sin tocar el dominio. El entregable real es la CRYPTO-AGILITY:
- * un ENABLER del plan de cambio de cripto que facilita PCI DSS 4.0 12.3.3 (inventario y plan ante
- * deprecaciones) y, a nivel marco, la gestion de riesgo ICT (DORA UE 2022/2554, arts. 5-15). NO es
- * "una firma cuantica" ni compliance certificado.
+ * Firma crypto-AGIL del journal. Hay dos implementaciones: ML-DSA-65 (FIPS 204, post-cuantica; el
+ * firmante ACTIVO por default) y {@link Ed25519JournalSigner} (clasica; el segundo esquema que prueba
+ * la rotacion). La interfaz permite rotar de esquema o montar un hibrido sin tocar el dominio. El
+ * entregable real es la CRYPTO-AGILITY: un ENABLER del plan de cambio de cripto que facilita PCI DSS 4.0
+ * 12.3.3 (inventario y plan ante deprecaciones) y, a nivel marco, la gestion de riesgo ICT (DORA UE
+ * 2022/2554, arts. 5-15). NO es "una firma cuantica" ni compliance certificado.
  *
- * <p>Honestidad de alcance: hoy el servicio inyecta UN solo firmante cableado a ML-DSA. La agility es
- * hacia ADELANTE (cada checkpoint guarda su algoritmo y clave, asi un checkpoint viejo se sigue
- * verificando con su algoritmo); falta el dispatch por {@code algorithm} para verificar OTRO esquema.
+ * <p>Agility COMPLETA (firma + verificacion):
+ * <ul>
+ *   <li><b>Firma:</b> el esquema activo se elige por configuracion ({@code ledgermind.journal.signer.algorithm},
+ *       default {@code ML-DSA-65}); cada checkpoint persiste su {@code algorithm} y su clave publica.</li>
+ *   <li><b>Verificacion:</b> el {@link JournalSignerRegistry} DESPACHA por el {@code algorithm} que el
+ *       checkpoint registro -> un checkpoint firmado con un esquema se verifica con ESE esquema, aunque
+ *       el firmante activo ya haya rotado a otro. Soporta >1 algoritmo en paralelo. Un algoritmo no
+ *       registrado falla RUIDOSO (no se disfraza de tamper).</li>
+ * </ul>
  *
  * <p>{@code verify} recibe la clave publica EXPLICITA. Eso prueba INTEGRIDAD-DE-MENSAJE (la firma cierra
  * contra la clave que la acompaña), NO autenticidad del firmante: sin un trust anchor externo (clave
- * pinneada en config, HSM/KMS, o un log de transparencia) NO prueba <i>quien</i> firmo.
+ * pinneada en config, HSM/KMS, o un log de transparencia) NO prueba <i>quien</i> firmo. Completar la
+ * agility NO cambia esto: el limite que queda es de GESTION DE CLAVES (anclar la clave publica fuera de
+ * la DB), no de agility de algoritmo. Ver {@code JournalCheckpointService.verifyLatest}.
  */
 public interface JournalSigner {
 

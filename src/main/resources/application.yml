@@ -42,6 +42,15 @@ spring:
           # Lazy: el decoder se crea SIN fetch al arranque; valida contra el JWKS del emisor en la 1ra llamada a /mcp.
           jwk-set-uri: ${JWK_SET_URI:http://localhost:8080/oauth2/jwks}
 
+ledgermind:
+  journal:
+    signer:
+      # Esquema de firma ACTIVO para los checkpoints NUEVOS (crypto-agility, lado de FIRMA). Rotar =
+      # cambiar este valor; los checkpoints viejos se siguen verificando con SU algoritmo (el registry
+      # despacha por el campo algorithm del checkpoint). Valores: ML-DSA-65 (FIPS 204, post-cuantico,
+      # default) | Ed25519 (clasico). Debe existir un JournalSigner registrado para el valor elegido.
+      algorithm: ${LEDGERMIND_JOURNAL_SIGNER_ALGORITHM:ML-DSA-65}
+
 management:
   endpoints:
     web:
