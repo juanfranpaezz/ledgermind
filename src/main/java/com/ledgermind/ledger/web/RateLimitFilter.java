@@ -26,7 +26,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
-        String path = request.getRequestURI();
+        String path = routedPath(request);
         if ((path.startsWith("/api/demo/") || path.startsWith("/api/journal/")) && !allow()) {
             response.setStatus(429);                          // Too Many Requests
             response.setContentType("application/json");
@@ -35,6 +35,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return;
         }
         chain.doFilter(request, response);
+    }
+
+    /**
+     * The path the container routes: decoded and normalized ({@code %6A} -> {@code j}, dot segments and path
+     * parameters removed). Matching the raw {@link HttpServletRequest#getRequestURI()} let
+     * {@code /api/%6Aournal/audit} reach the audit handler without being counted (gate measurement, 2026-09-25).
+     */
+    static String routedPath(HttpServletRequest request) {
+        String servletPath = request.getServletPath();
+        String pathInfo = request.getPathInfo();
+        return pathInfo == null ? servletPath : servletPath + pathInfo;
     }
 
     private synchronized boolean allow() {

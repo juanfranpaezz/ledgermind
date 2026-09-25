@@ -1,5 +1,6 @@
 package com.ledgermind.ledger;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -71,12 +72,16 @@ public class AccountBalanceVerifier {
             checkedAndReplayed[1] = rs.getLong("postings_replayed");
             long storedDebits = rs.getLong("posted_debits");
             long storedCredits = rs.getLong("posted_credits");
-            long journalDebits = rs.getLong("journal_debits");
-            long journalCredits = rs.getLong("journal_credits");
-            if (storedDebits != journalDebits || storedCredits != journalCredits) {
+            // sum() of BIGINT is NUMERIC: read it exactly. A journal sum above Long.MAX_VALUE (only reachable
+            // out-of-band, the counters are BIGINT) must come out as a mismatch, not as "Bad value for type long".
+            BigInteger journalDebits = rs.getBigDecimal("journal_debits").toBigIntegerExact();
+            BigInteger journalCredits = rs.getBigDecimal("journal_credits").toBigIntegerExact();
+            BigInteger debitsDifference = BigInteger.valueOf(storedDebits).subtract(journalDebits);
+            BigInteger creditsDifference = BigInteger.valueOf(storedCredits).subtract(journalCredits);
+            if (debitsDifference.signum() != 0 || creditsDifference.signum() != 0) {
                 mismatches.add(new AccountBalanceMismatch(rs.getLong("id"), rs.getString("address"),
-                        storedDebits, journalDebits, storedDebits - journalDebits,
-                        storedCredits, journalCredits, storedCredits - journalCredits));
+                        storedDebits, journalDebits, debitsDifference,
+                        storedCredits, journalCredits, creditsDifference));
             }
         });
         return new BalanceVerifyResult(mismatches.isEmpty(), checkedAndReplayed[0], checkedAndReplayed[1],
@@ -85,24 +90,25 @@ public class AccountBalanceVerifier {
 
     /**
      * Una cuenta cuyo contador cacheado NO coincide con el replay del journal. Lleva los DOS numeros y la
-     * diferencia de cada lado, para que el descuadre se pueda leer sin volver a la base.
+     * diferencia de cada lado, para que el descuadre se pueda leer sin volver a la base. The journal sums and the
+     * differences are {@link BigInteger}: an out-of-band journal can sum above {@code Long.MAX_VALUE}.
      */
     public record AccountBalanceMismatch(Long accountId, String address,
-                                         long storedPostedDebits, long journalPostedDebits,
-                                         long postedDebitsDifference,
-                                         long storedPostedCredits, long journalPostedCredits,
-                                         long postedCreditsDifference) {
+                                         long storedPostedDebits, BigInteger journalPostedDebits,
+                                         BigInteger postedDebitsDifference,
+                                         long storedPostedCredits, BigInteger journalPostedCredits,
+                                         BigInteger postedCreditsDifference) {
 
         /** Linea legible para el verdict del audit y para los logs. */
         public String describe() {
             StringBuilder sb = new StringBuilder(address).append(" (id ").append(accountId).append("):");
-            if (postedDebitsDifference != 0) {
+            if (postedDebitsDifference.signum() != 0) {
                 sb.append(" debitos almacenados ").append(storedPostedDebits)
                         .append(" vs journal ").append(journalPostedDebits)
                         .append(" (diferencia ").append(postedDebitsDifference).append(")");
             }
-            if (postedCreditsDifference != 0) {
-                if (postedDebitsDifference != 0) {
+            if (postedCreditsDifference.signum() != 0) {
+                if (postedDebitsDifference.signum() != 0) {
                     sb.append(",");
                 }
                 sb.append(" creditos almacenados ").append(storedPostedCredits)
