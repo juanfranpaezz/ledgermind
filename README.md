@@ -63,7 +63,7 @@ flowchart TB
     AG["AI agent<br/>(MCP client)"]
 
     U -->|HTTP| API["REST API<br/>/api/**"]
-    AG -->|"MCP · OAuth2.1 Bearer"| MCP["MCP Server<br/>/mcp · scope ledger.read (read-only)"]
+    AG -->|"MCP · OAuth2.1 Bearer"| MCP["MCP Server<br/>/mcp · per-tool scope<br/>ledger.read: 4 read-only tools<br/>ledger.admin: 2 operator tools"]
 
     API --> SVC["LedgerService"]
     MCP --> SVC
@@ -109,7 +109,7 @@ docker compose up -d
 ./mvnw verify
 ```
 
-> **Upgrading an existing database (operators).** Flyway applies `V5__overdraft_sweep.sql` on the next start. It only creates tables and an index (`overdraft_sweep_state`, `account_derived_total`, `overdraft_flag` with one active flag per account, `journal_chainer_state`) and seeds the single sweep-state row; it does not alter existing tables. If you ran a pre-release build whose V5 differed, Flyway refuses to start with a checksum mismatch: that only affects development volumes, so recreate the local Postgres volume (e.g. `docker compose down -v`, which deletes its data).
+> **Upgrading an existing database (operators).** Flyway applies `V5__overdraft_sweep.sql` on the next start. It only creates tables and an index (`overdraft_sweep_state`, `account_derived_total`, `overdraft_flag` with one active flag per account, `journal_chainer_state`) and seeds the single sweep-state row; it does not alter existing tables. The sweep-state row starts at watermark 0, so the **first sweep after the upgrade** re-derives every account that has postings from its full journal (one REPEATABLE READ transaction whose cost grows with the whole history) and **freezes any existing account whose derived balance already violates its overdraft rule**: its transfers then get `423 Locked` until an operator runs `unfreeze_account` (scope `ledger.admin`). If you ran a pre-release build whose V5 differed, Flyway refuses to start with a checksum mismatch: that only affects development volumes, so recreate the local Postgres volume (e.g. `docker compose down -v`, which deletes its data).
 
 ---
 

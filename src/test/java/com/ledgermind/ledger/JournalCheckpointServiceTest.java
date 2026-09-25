@@ -189,6 +189,49 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
+    void an_empty_stored_public_key_fails_loud_as_structural_not_as_a_null_pointer() {
+        ledger.createAccount("external:funding", "ARS", true);
+        ledger.createAccount("wallet:a", "ARS", false);
+        ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
+        chainer.chainPendingPostings();
+        checkpoints.checkpointIfHeadAdvanced();
+
+        // public_key is NOT NULL, so '' is the degenerate value a DB writer can store. It is not an X.509 key, so it
+        // must fail like any other key that does not parse: IllegalStateException (structural, not tamper), never a
+        // NullPointerException out of the ASN.1 parser.
+        jdbc.update("UPDATE journal_checkpoint SET public_key = ? "
+                + "WHERE chain_seq = (SELECT max(chain_seq) FROM journal_checkpoint)", "");
+
+        assertThatThrownBy(() -> checkpoints.verifyLatest())
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> checkpoints.audit())
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void a_checkpoint_signed_by_an_earlier_key_of_the_same_scheme_still_verifies() {
+        ledger.createAccount("external:funding", "ARS", true);
+        ledger.createAccount("wallet:a", "ARS", false);
+        ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
+        chainer.chainPendingPostings();
+        JournalCheckpoint cp = checkpoints.checkpointIfHeadAdvanced().orElseThrow();
+
+        // The signing key is regenerated at every startup, so a checkpoint written before a restart carries a
+        // DIFFERENT ML-DSA-65 key than today's signer. Simulate that previous boot: sign the same head with a fresh
+        // key of the same scheme and store that (key, signature) pair. The declared-scheme check compares key
+        // ALGORITHMS, not key bytes, so this must still verify; an exact stored-key comparison would turn every
+        // pre-restart checkpoint into a false tamper.
+        MlDsaJournalSigner previousBoot = new MlDsaJournalSigner();
+        assertThat(previousBoot.publicKeyBase64()).isNotEqualTo(cp.getPublicKey());
+        byte[] message = JournalCheckpointService.checkpointMessage(cp.getChainSeq(), cp.getHeadHash());
+        jdbc.update("UPDATE journal_checkpoint SET public_key = ?, signature = ? WHERE chain_seq = ?",
+                previousBoot.publicKeyBase64(), previousBoot.sign(message), cp.getChainSeq());
+
+        assertThat(checkpoints.verifyLatest().signatureValid()).isTrue();
+        assertThat(checkpoints.audit().tamperDetected()).isFalse();
+    }
+
+    @Test
     void crea_un_nuevo_checkpoint_cuando_la_cabeza_avanza() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:c", "ARS", false);

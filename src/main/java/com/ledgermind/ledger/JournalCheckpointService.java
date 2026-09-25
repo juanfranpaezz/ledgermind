@@ -346,8 +346,15 @@ public class JournalCheckpointService {
 
     private static ASN1ObjectIdentifier keyAlgorithmOid(String publicKeyBase64) {
         try {
-            return SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKeyBase64))
-                    .getAlgorithm().getAlgorithm();
+            byte[] der = Base64.getDecoder().decode(publicKeyBase64 == null ? "" : publicKeyBase64);
+            if (der.length == 0) {
+                // An empty key is not rejected by BouncyCastle with IllegalArgumentException: for 0 bytes its
+                // ASN1Sequence.getInstance throws NullPointerException (measured). Reject it here with the same
+                // structural failure as any other key that is not X.509.
+                throw new IllegalStateException("The checkpoint public key is empty: it is not a valid X.509"
+                        + " SubjectPublicKeyInfo (structural cause, not tamper evidence)");
+            }
+            return SubjectPublicKeyInfo.getInstance(der).getAlgorithm().getAlgorithm();
         } catch (IllegalArgumentException structural) {
             throw new IllegalStateException("La clave publica del checkpoint no es un SubjectPublicKeyInfo X.509 valido"
                     + " (causa estructural, no evidencia de tamper)", structural);
