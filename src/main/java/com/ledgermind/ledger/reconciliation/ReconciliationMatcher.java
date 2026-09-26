@@ -2,7 +2,9 @@ package com.ledgermind.ledger.reconciliation;
 
 import com.ledgermind.ledger.AmountOverflowException;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -26,10 +28,14 @@ public class ReconciliationMatcher {
         // Null-safe por diseño: una ref nula colapsa a "" (un bucket de descuadre) en vez de reventar el
         // groupingBy con un NPE. El borde (controller) ya rechaza refs vacias; esto blinda al matcher como
         // funcion pura ante CUALQUIER caller (incl. la demo) sin acoplarlo a esa validacion.
-        Map<String, Long> feedByRef = feed.stream().collect(Collectors.groupingBy(
-                r -> Objects.requireNonNullElse(r.externalRef(), ""), Collectors.reducing(0L, SettlementRecord::amount, ReconciliationMatcher::addExact)));
-        Map<String, Long> ledgerByRef = ledger.stream().collect(Collectors.groupingBy(
-                le -> Objects.requireNonNullElse(le.ref(), ""), Collectors.reducing(0L, LedgerEntry::amount, ReconciliationMatcher::addExact)));
+        // Sums are exact (BigInteger) and only the FINAL value must fit in 64 bits: the result does not depend on the
+        // order of the rows ([MAX, 10, -20] is MAX-10, not an error), and a final value outside the range is rejected.
+        Map<String, Long> feedByRef = toLongs(feed.stream().collect(Collectors.groupingBy(
+                r -> Objects.requireNonNullElse(r.externalRef(), ""),
+                Collectors.reducing(BigInteger.ZERO, r -> BigInteger.valueOf(r.amount()), BigInteger::add))));
+        Map<String, Long> ledgerByRef = toLongs(ledger.stream().collect(Collectors.groupingBy(
+                le -> Objects.requireNonNullElse(le.ref(), ""),
+                Collectors.reducing(BigInteger.ZERO, le -> BigInteger.valueOf(le.amount()), BigInteger::add))));
 
         List<Discrepancy> discrepancies = new ArrayList<>();
         int matched = 0;
@@ -64,8 +70,10 @@ public class ReconciliationMatcher {
         }
 
         // Exact totals: a caller-supplied feed can sum past Long.MAX; that is rejected (422), never wrapped.
-        long feedTotal = feed.stream().mapToLong(SettlementRecord::amount).reduce(0L, ReconciliationMatcher::addExact);
-        long ledgerTotal = ledger.stream().mapToLong(LedgerEntry::amount).reduce(0L, ReconciliationMatcher::addExact);
+        long feedTotal = fitOrReject(feed.stream().map(r -> BigInteger.valueOf(r.amount()))
+                .reduce(BigInteger.ZERO, BigInteger::add));
+        long ledgerTotal = fitOrReject(ledger.stream().map(le -> BigInteger.valueOf(le.amount()))
+                .reduce(BigInteger.ZERO, BigInteger::add));
         long difference = subtractExact(feedTotal, ledgerTotal);
         boolean balanced = discrepancies.isEmpty() && difference == 0;
         String summary = balanced
@@ -77,9 +85,15 @@ public class ReconciliationMatcher {
                 feedTotal, ledgerTotal, difference, discrepancies, balanced, summary);
     }
 
-    private static long addExact(long a, long b) {
+    private static Map<String, Long> toLongs(Map<String, BigInteger> exact) {
+        Map<String, Long> out = new HashMap<>();
+        exact.forEach((ref, sum) -> out.put(ref, fitOrReject(sum)));
+        return out;
+    }
+
+    private static long fitOrReject(BigInteger exactSum) {
         try {
-            return Math.addExact(a, b);
+            return exactSum.longValueExact();
         } catch (ArithmeticException e) {
             throw new AmountOverflowException("A reconciliation total is outside the 64-bit range; it is rejected, not wrapped.");
         }

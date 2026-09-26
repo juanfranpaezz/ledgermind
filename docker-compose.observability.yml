@@ -8,7 +8,10 @@
 #   - Prometheus: http://<host>:9090
 #   - App/demo:   http://<host>:8080
 #
-# Para generar tráfico y ver los paneles moverse, tocá los botones del demo en :8080 (o pegale al /api).
+# Para generar tráfico y ver los paneles moverse, tocá los botones del demo en :8080 (o pegale al /api con X-API-Key).
+# La app exige LEDGERMIND_API_KEYS_FILE (fail-closed). Por defecto se monta observability/demo-api-keys.empty, un
+# archivo VACIO: solo andan los cinco /api/demo/* anonimos. Para llamar el resto del /api con clave:
+#   LEDGERMIND_API_KEYS_HOST_FILE=~/.ledgermind/api-keys.txt docker compose -f docker-compose.observability.yml up --build -d
 services:
   postgres:
     image: postgres:16
@@ -33,6 +36,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ledgermind
       SPRING_DATASOURCE_USERNAME: ledgermind
       SPRING_DATASOURCE_PASSWORD: ledgermind
+      LEDGERMIND_API_KEYS_FILE: /run/ledgermind/api-keys
+    volumes:
+      - ${LEDGERMIND_API_KEYS_HOST_FILE:-./observability/demo-api-keys.empty}:/run/ledgermind/api-keys:ro
     depends_on:
       postgres:
         condition: service_healthy

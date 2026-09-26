@@ -37,6 +37,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "ledgermind.journal.chain-delay-ms=3600000",
         "ledgermind.journal.checkpoint-delay-ms=3600000",
         "ledgermind.overdraft.sweep-delay-ms=3600000",
+        "ledgermind.overdraft.sweep-initial-delay-ms=3600000",
         "ledgermind.overdraft.watermark-lag-ms=0"
 })
 @AutoConfigureMockMvc

@@ -15,9 +15,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Soporte SOLO para la demo visual ({@code static/index.html}). Existe unicamente bajo el perfil
- * {@code demo}: en produccion estos endpoints NO se cargan. Permite (1) reiniciar el ledger a un estado
- * limpio y firmado, y (2) simular una edicion maliciosa de un asiento por SQL directo, para mostrar EN VIVO
- * que la hash-chain lo detecta. No es parte del dominio: es andamiaje de demostracion.
+ * {@code demo}: en produccion estos endpoints NO se cargan. Son cinco, los unicos de /api que un anonimo puede
+ * llamar (y solo bajo {@code demo}): POST reset (ledger limpio y firmado), POST idempotency (la misma transferencia
+ * dos veces con una clave fija, del lado del server), POST tamper (edicion maliciosa de un asiento por SQL directo,
+ * para mostrar EN VIVO que la hash-chain lo detecta), POST reconcile y GET audit. La pagina de la demo debe llamar
+ * solo estos cinco: cualquier otro /api pide X-API-Key. No es parte del dominio: es andamiaje de demostracion.
  */
 @RestController
 @Profile("demo")
@@ -82,7 +84,7 @@ class DemoSupportController {
                 + " (simulando un atacante con acceso a la base). La firma NO se toco.");
     }
 
-    /** Fixed idempotency key of the demo: every call after the first replays, so anonymous callers add no postings. */
+    /** Fixed idempotency key of the demo: every call after the first replays, so anonymous callers add at most one posting per reset. */
     static final String DEMO_IDEMPOTENCY_KEY = "demo-dup";
 
     /**

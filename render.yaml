@@ -8,6 +8,11 @@ services:
     plan: free
     healthCheckPath: /actuator/health
     envVars:
+      # REQUISITO antes de desplegar: LEDGERMIND_API_KEYS_FILE. El arranque es fail-closed sin esa variable, asi que
+      # sin ella el health check nunca pasa. Crear un Secret File en el dashboard (vacio = solo los cinco /api/demo/*
+      # anonimos; en servicios Docker se monta en /etc/secrets/<nombre>) y agregar aca
+      #   - key: LEDGERMIND_API_KEYS_FILE
+      #     value: /etc/secrets/<nombre>
       # La instancia desplegada ES la demo navegable (escenario de auditor + Authorization Server
       # embebido). Sin esto el perfil activo seria 'default': los /api/demo/* darian 404 y /mcp seria
       # inalcanzable -> el link que el reviewer abre primero no funcionaria.

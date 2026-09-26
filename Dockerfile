@@ -11,7 +11,11 @@ COPY --from=build /app/target/ledgermind-*.jar app.jar
 # Un ledger de pagos vive en UTC (coherente con TimeZone.setDefault(UTC) en main()).
 ENV TZ=UTC
 ENV JAVA_TOOL_OPTIONS="-Duser.timezone=UTC"
-# Esta imagen ES la demo navegable que anuncia el README: el perfil 'demo' carga el escenario de
+# REQUIERE LEDGERMIND_API_KEYS_FILE: sin esa variable (o con un archivo inexistente o mal formado) el proceso sale
+# con 1 (fail-closed). La imagen no trae ningun archivo de claves, a proposito; montalo en runtime, p. ej.
+#   -v /ruta/api-keys.txt:/run/ledgermind/api-keys:ro -e LEDGERMIND_API_KEYS_FILE=/run/ledgermind/api-keys
+# (un archivo vacio = solo los cinco endpoints anonimos /api/demo/*; cualquier otro /api da 401).
+# Con eso, esta imagen es la demo navegable que anuncia el README: el perfil 'demo' carga el escenario de
 # auditor (DemoSupportController) y el Authorization Server embebido. Default explicito y overridable
 # en runtime con -e SPRING_PROFILES_ACTIVE=... (un artefacto se valida por su comportamiento, no por compilar).
 ENV SPRING_PROFILES_ACTIVE=demo

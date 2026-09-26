@@ -75,7 +75,10 @@ public class OverdraftSweeper {
                                 long postingIdFrom, long postingIdTo) {
     }
 
-    @Scheduled(fixedDelayString = "${ledgermind.overdraft.sweep-delay-ms:10000}")
+    // The first pass runs right at startup (initial delay 0) unless the property says otherwise; tests that call
+    // sweep() by hand set it high so the scheduled startup pass cannot race them on the FOR UPDATE row.
+    @Scheduled(fixedDelayString = "${ledgermind.overdraft.sweep-delay-ms:10000}",
+            initialDelayString = "${ledgermind.overdraft.sweep-initial-delay-ms:0}")
     public SweepResult sweep() {
         long t0 = System.nanoTime();
         SweepResult r = snapshotTx.execute(status -> sweepInSnapshot(t0));

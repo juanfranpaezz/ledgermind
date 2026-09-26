@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigInteger;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -14,6 +15,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.config.FixedDelayTask;
+import org.springframework.scheduling.config.ScheduledTask;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -28,6 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "ledgermind.journal.chain-delay-ms=3600000",
         "ledgermind.journal.checkpoint-delay-ms=3600000",
         "ledgermind.overdraft.sweep-delay-ms=3600000",
+        "ledgermind.overdraft.sweep-initial-delay-ms=3600000",
         "ledgermind.overdraft.watermark-lag-ms=0"
 })
 @Testcontainers
@@ -43,6 +48,8 @@ class OverdraftSweepOverflowTest {
     private OverdraftSweeper sweeper;
     @Autowired
     private JdbcTemplate jdbc;
+    @Autowired
+    private ScheduledTaskHolder scheduledTasks;
 
     private void freshLedger() {
         jdbc.execute("TRUNCATE journal_checkpoint, posting_hash, posting, account RESTART IDENTITY CASCADE");
@@ -108,5 +115,23 @@ class OverdraftSweepOverflowTest {
         }
         System.out.println("[OVF-3] pairs=" + pairs.size() + " overflowing=" + overflowing);
         assertThat(overflowing).as("the generator exercised the overflow branch").isPositive();
+    }
+
+    /**
+     * Gate fix (amend round 1): with only {@code sweep-delay-ms} set high, the scheduled sweep still ran once at context
+     * start and raced this class's manual {@code sweep()} on the {@code FOR UPDATE} row (a serialization error, seen in
+     * a clean-clone verify). The registered task must carry the configured initial delay, so no startup pass exists
+     * inside this test's window.
+     */
+    @Test
+    void theScheduledStartupSweepIsDeferredByTheInitialDelayProperty() {
+        List<FixedDelayTask> sweeps = scheduledTasks.getScheduledTasks().stream()
+                .map(ScheduledTask::getTask)
+                .filter(t -> t.toString().contains("OverdraftSweeper.sweep"))
+                .filter(FixedDelayTask.class::isInstance).map(FixedDelayTask.class::cast)
+                .toList();
+        assertThat(sweeps).as("exactly one scheduled OverdraftSweeper.sweep task").hasSize(1);
+        assertThat(sweeps.get(0).getInitialDelayDuration()).as("initial delay of the scheduled sweep")
+                .isEqualTo(Duration.ofMillis(3_600_000));
     }
 }

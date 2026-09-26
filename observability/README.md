@@ -12,6 +12,9 @@ docker compose -f docker-compose.observability.yml up --build -d
 - **Grafana** → `http://<host>:3000` — dashboard **"LedgerMind — Observabilidad"** ya provisionado (anónimo read-only).
 - **Prometheus** → `http://<host>:9090`
 - **App / demo** → `http://<host>:8080` — tocá los botones del demo para generar tráfico y ver moverse los paneles.
+- **Claves de la API** → la app exige `LEDGERMIND_API_KEYS_FILE` y no arranca sin él. El compose monta por defecto
+  `observability/demo-api-keys.empty` (vacío: solo andan los cinco `/api/demo/*` anónimos). Para usar el resto del
+  `/api` con `X-API-Key`, apuntá `LEDGERMIND_API_KEYS_HOST_FILE` a tu archivo de claves antes del `up`.
 
 ## La cadena (cómo funciona)
 

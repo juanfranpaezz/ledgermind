@@ -9,10 +9,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Rate-limit GLOBAL simple (ventana fija) sobre los endpoints destructivos o caros que estan abiertos:
- * {@code /api/demo/**} (reset/tamper) y {@code /api/journal/**} (verify/audit son O(n)). Acota el abuso
- * en bucle (DoS / wipe) sin requerir auth, que rompria el caracter publico de la demo. En produccion la
- * version seria un token-bucket por cliente; aca un contador global alcanza para frenar el loop.
+ * Rate-limit GLOBAL simple (ventana fija, 30 pedidos por 10 s) sobre {@code /api/demo/**} (los cinco endpoints de la
+ * demo, anonimos solo bajo el perfil {@code demo}) y {@code /api/journal/**} (con X-API-Key; verify/audit son O(n)).
+ * Corre despues de Spring Security: solo cuenta pedidos que pasaron la autenticacion (un 401 no cuenta; los anonimos
+ * de la demo si). No es por cliente: un solo llamador, con clave o anonimo en la demo, puede agotar la ventana y dejar
+ * en 429 las auditorias de todos. /api/transfers, /api/accounts y /api/reconciliation no tienen limite. El paso
+ * siguiente es un contador por clave.
  */
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
