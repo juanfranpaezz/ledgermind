@@ -1,5 +1,8 @@
 package com.ledgermind.ledger.web;
 
+import org.junit.jupiter.api.BeforeEach;
+import com.ledgermind.TestApiKeys;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Map;
@@ -30,6 +33,15 @@ class LedgerApiIntegrationTest {
 
     @Autowired
     private TestRestTemplate rest;
+
+    /** Every /api call needs a key (ApiSecurityConfig); the test key is generated at run time by TestApiKeys. */
+    @BeforeEach
+    void sendApiKey() {
+        rest.getRestTemplate().getInterceptors().add((request, body, execution) -> {
+            request.getHeaders().set("X-API-Key", TestApiKeys.key());
+            return execution.execute(request, body);
+        });
+    }
 
     @Test
     @SuppressWarnings({"unchecked", "rawtypes"})

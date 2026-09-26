@@ -32,17 +32,18 @@ The reliable path is to **run it locally** (1 command, see [How to run](#how-to-
 
 ```bash
 BASE=http://localhost:8080   # or your own deployed instance
+KEY_HEADER="X-API-Key: $LEDGERMIND_API_KEY"   # a key whose sha256 line is in LEDGERMIND_API_KEYS_FILE
 
 # Create two accounts and transfer (the transfer is idempotent by idempotencyKey)
-curl -s -XPOST $BASE/api/accounts -H 'Content-Type: application/json' \
+curl -s -XPOST $BASE/api/accounts -H "$KEY_HEADER" -H 'Content-Type: application/json' \
   -d '{"address":"wallet:ana","asset":"ARS","allowNegative":true}'
-curl -s -XPOST $BASE/api/accounts -H 'Content-Type: application/json' \
+curl -s -XPOST $BASE/api/accounts -H "$KEY_HEADER" -H 'Content-Type: application/json' \
   -d '{"address":"wallet:beto","asset":"ARS"}'
-curl -s -XPOST $BASE/api/transfers -H 'Content-Type: application/json' \
+curl -s -XPOST $BASE/api/transfers -H "$KEY_HEADER" -H 'Content-Type: application/json' \
   -d '{"debitAddress":"wallet:ana","creditAddress":"wallet:beto","amount":50000,"idempotencyKey":"demo-1"}'
 
 # Audit the integrity of the journal (the same data the agent sees over MCP)
-curl -s $BASE/api/journal/audit
+curl -s -H "$KEY_HEADER" $BASE/api/journal/audit
 
 # OAuth2.1 → MCP flow (demo profile): request a token and call /mcp with the Bearer
 TOKEN=$(curl -s -u mcp-client:secret -d grant_type=client_credentials -d scope=ledger.read \
@@ -102,7 +103,11 @@ Requirements: **JDK 21** and **Docker** (for Postgres and for the Testcontainers
 # 1) Local Postgres
 docker compose up -d
 
-# 2) The app (demo profile = includes an embedded Authorization Server to issue MCP tokens)
+# 2) API keys file, required in EVERY profile (an existing empty file = only the anonymous demo endpoints work).
+#    Add a key: KEY=$(openssl rand -hex 32); echo "me sha256:$(printf %s "$KEY" | sha256sum | cut -d' ' -f1)" >> ~/.ledgermind/api-keys.txt
+mkdir -p ~/.ledgermind && touch ~/.ledgermind/api-keys.txt && export LEDGERMIND_API_KEYS_FILE=~/.ledgermind/api-keys.txt
+
+# 3) The app (demo profile = includes an embedded Authorization Server to issue MCP tokens)
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
 
 # Tests (concurrency spike, real ML-DSA runtime, scope enforcement, reconciliation...). Only needs Docker:
@@ -115,7 +120,7 @@ docker compose up -d
 
 ## API and MCP tools
 
-**REST** (`/api`)
+**REST** (`/api`) — every row needs the `X-API-Key` header, in every profile.
 
 | Method | Path | What it does |
 |--------|------|----------|
@@ -186,7 +191,8 @@ This is a **demonstration project**; the limits are written down on purpose (the
 - **Money conservation is implied, not checked separately** — the audit has no separate `sum(posted_debits) == sum(posted_credits)` check. It does not need one to catch a counter edit: every posting row carries one positive amount, one debit account and a different credit account (both foreign keys to `account`), so the journal is conserved by construction, and `balancesConsistent=true` means every account's counters equal its journal sums, which makes the counters conserved too. A counter edit that breaks conservation therefore also makes `balancesConsistent=false` (pinned by `PendingCountersAndConservationTest`).
 - **No holds: `pending_debits` / `pending_credits` are always 0** — the schema, `Account.availableBalance()` and the overdraft sweep carry a pending (hold) term reserved for a future two-phase flow, but no code path writes it: both columns stay 0, the available balance is posted credits minus posted debits, and the balance replay does not look at them (pinned by `PendingCountersAndConservationTest`).
 - **One scope for the four read tools, a separate one for the operator tools** — among the four read-only tools the granularity is one of *enforcement* (each tool checks its own `@PreAuthorize`), not of *privilege*: all four ask for the same `ledger.read`, because a single scope is enough for read-only access. The two operator tools (`list_frozen_accounts`; `unfreeze_account`, which changes an account's state but moves no money) require the separate `ledger.admin`. The documented next step for real least-privilege among the read tools (e.g. a second, less-trusted client that must audit but not reconcile) is still to split `ledger.read` into `ledger.audit` / `ledger.reconcile`. Today that would be ceremony.
-- **`/api` is open, and the audit endpoint is expensive** — only `/mcp` is behind OAuth (with audience validation). `/api` needs no credentials in any profile, including `GET /api/journal/audit`, which the demo page calls. Every audit call reads the whole journal: the hash-chain recompute loads every chained posting through JPA (in batches of 200) and the balance replay aggregates every posting in one SQL statement, so its cost grows with the journal. The only brake is one **global** rate-limit counter, 30 requests per 10 s shared by every caller of `/api/demo/*` and `/api/journal/*`, matched on the decoded, normalized path the server routes (so a percent-encoded path such as `/api/%6Aournal/audit` is counted too, pinned by `RateLimitEncodedPathTest`): it caps the load, but one anonymous caller can use up the window and legitimate audits get `429` until it resets. In production the read model would be authenticated and rate-limited per client. The `/api/demo/*` endpoints (reset/tamper) exist only under the `demo` profile.
+- **`/api` requires an API key; the audit endpoint is still expensive** — `/api` requires an API key in every profile: send it in the `X-API-Key` header; without it the answer is `401` (`auth_missing`; a key that matches nothing gets `auth_invalid`). Keys never live in the repository: the server reads `<key_id> sha256:<hex>` lines from the file named by `LEDGERMIND_API_KEYS_FILE` and refuses to start without it (an existing empty file is valid and means no keyed callers). Only under the `demo` profile, anonymous callers can reach exactly five endpoints, all under `/api/demo/`: `POST reset`, `POST idempotency`, `POST tamper`, `POST reconcile` and `GET audit`; the idempotency demo runs server-side with one fixed key, so an anonymous caller cannot add postings. `/mcp` stays behind OAuth (with audience validation). Every audit call reads the whole journal: the hash-chain recompute loads every chained posting through JPA (in batches of 200) and the balance replay aggregates every posting in one SQL statement, so its cost grows with the journal. The rate limit is still one **global** counter, 30 requests per 10 s shared by every caller of `/api/demo/*` and `/api/journal/*`, matched on the decoded, normalized path the server routes (so a percent-encoded path such as `/api/%6Aournal/audit` is counted too, pinned by `RateLimitEncodedPathTest`): it caps the load, but one anonymous demo caller can still use up the window and keyed audits get `429` until it resets; per-key buckets are the next step. The `/api/demo/*` endpoints (reset/tamper) exist only under the `demo` profile.
+- **64-bit range** — A journal sum above the 64-bit range is reported as tamper, never as an error (the balance replay and the overdraft sweep both sum exactly; the sweep freezes a non-negative account whose debit sum overflows and stores the evidence saturated at the 64-bit limits); a transfer that would overflow a counter is rejected with `422`, and so is a reconciliation total outside the range.
 - **`verify()` is O(n)** — at real scale, the next step is Merkle + incremental verification from the last checkpoint.
 - **Reconciliation against a simulated feed** — matching is by exact reference + amount (no tolerance, no T+N window, no multi-currency); in production the feed would come from the PSP's real file and be reconciled by window. It assumes `idempotencyKey == the client's order id` as the correlation axis.
 

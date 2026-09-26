@@ -1,5 +1,7 @@
 package com.ledgermind.ledger.web;
 
+import com.ledgermind.TestApiKeys;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.URI;
@@ -43,7 +45,8 @@ class RateLimitEncodedPathTest {
     private final HttpClient http = HttpClient.newHttpClient();
 
     private HttpResponse<String> get(String rawPath) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + rawPath)).GET().build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + rawPath))
+                .header("X-API-Key", TestApiKeys.key()).GET().build();
         return http.send(request, HttpResponse.BodyHandlers.ofString());
     }
 

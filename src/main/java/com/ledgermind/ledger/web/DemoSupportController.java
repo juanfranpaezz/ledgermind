@@ -3,10 +3,12 @@ package com.ledgermind.ledger.web;
 import com.ledgermind.ledger.JournalChainer;
 import com.ledgermind.ledger.JournalCheckpointService;
 import com.ledgermind.ledger.LedgerService;
+import com.ledgermind.ledger.Posting;
 import com.ledgermind.ledger.reconciliation.ReconciliationReport;
 import com.ledgermind.ledger.reconciliation.ReconciliationService;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -78,6 +80,33 @@ class DemoSupportController {
         jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", id);
         return new DemoMessage("Se altero por SQL directo el monto del asiento #" + id
                 + " (simulando un atacante con acceso a la base). La firma NO se toco.");
+    }
+
+    /** Fixed idempotency key of the demo: every call after the first replays, so anonymous callers add no postings. */
+    static final String DEMO_IDEMPOTENCY_KEY = "demo-dup";
+
+    /**
+     * The idempotency demo, run server-side so the page needs no keyed endpoint: read beto, the SAME transfer
+     * twice with the fixed key, read beto again. The second call replays the first posting.
+     */
+    @PostMapping("/idempotency")
+    DemoIdempotency idempotency() {
+        long before = ledger.getByAddress("wallet:beto").availableBalance();
+        Posting first = ledger.transfer("wallet:ana", "wallet:beto", 5_000, DEMO_IDEMPOTENCY_KEY);
+        Posting second = ledger.transfer("wallet:ana", "wallet:beto", 5_000, DEMO_IDEMPOTENCY_KEY);
+        long after = ledger.getByAddress("wallet:beto").availableBalance();
+        return new DemoIdempotency(first.getId(), second.getId(), first.getId().equals(second.getId()),
+                before, after);
+    }
+
+    /** The same report as the keyed {@code GET /api/journal/audit}, reachable anonymously under the demo profile. */
+    @GetMapping("/audit")
+    JournalCheckpointService.JournalIntegrityReport audit() {
+        return checkpoints.audit();
+    }
+
+    record DemoIdempotency(long firstPostingId, long secondPostingId, boolean samePosting,
+                           long betoBefore, long betoAfter) {
     }
 
     record DemoMessage(String message) {

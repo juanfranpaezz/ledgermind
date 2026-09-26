@@ -1,5 +1,7 @@
 package com.ledgermind.ledger;
 
+import com.ledgermind.TestApiKeys;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -116,7 +118,7 @@ class OverdraftSweepTest {
         ledger.transfer("external:funding", "wallet:b", 1_000, "unrelated-ok");
 
         // por HTTP: 423 con ProblemDetail especifico, no un 500
-        mvc.perform(post("/api/transfers").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/transfers").header("X-API-Key", TestApiKeys.key()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"debitAddress\":\"wallet:a\",\"creditAddress\":\"wallet:b\",\"amount\":500,"
                                 + "\"idempotencyKey\":\"http-frozen\"}"))
                 .andExpect(status().isLocked())
