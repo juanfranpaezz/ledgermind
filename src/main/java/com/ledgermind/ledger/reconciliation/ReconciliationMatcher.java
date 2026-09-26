@@ -1,5 +1,7 @@
 package com.ledgermind.ledger.reconciliation;
 
+import com.ledgermind.ledger.AmountOverflowException;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -25,9 +27,9 @@ public class ReconciliationMatcher {
         // groupingBy con un NPE. El borde (controller) ya rechaza refs vacias; esto blinda al matcher como
         // funcion pura ante CUALQUIER caller (incl. la demo) sin acoplarlo a esa validacion.
         Map<String, Long> feedByRef = feed.stream().collect(Collectors.groupingBy(
-                r -> Objects.requireNonNullElse(r.externalRef(), ""), Collectors.summingLong(SettlementRecord::amount)));
+                r -> Objects.requireNonNullElse(r.externalRef(), ""), Collectors.reducing(0L, SettlementRecord::amount, ReconciliationMatcher::addExact)));
         Map<String, Long> ledgerByRef = ledger.stream().collect(Collectors.groupingBy(
-                le -> Objects.requireNonNullElse(le.ref(), ""), Collectors.summingLong(LedgerEntry::amount)));
+                le -> Objects.requireNonNullElse(le.ref(), ""), Collectors.reducing(0L, LedgerEntry::amount, ReconciliationMatcher::addExact)));
 
         List<Discrepancy> discrepancies = new ArrayList<>();
         int matched = 0;
@@ -41,7 +43,7 @@ public class ReconciliationMatcher {
                 discrepancies.add(new Discrepancy(Discrepancy.Type.MISSING_IN_LEDGER, ref, feedAmount, 0,
                         "el PSP liquidó " + feedAmount + " para '" + ref + "' y no hay asiento"));
             } else if (ledgerAmount != feedAmount) {
-                long diff = feedAmount - ledgerAmount;
+                long diff = subtractExact(feedAmount, ledgerAmount);
                 String hint = diff < 0
                         ? " (el PSP liquidó menos: posible comisión/retención no asentada)"
                         : " (el PSP liquidó de más que lo asentado)";
@@ -61,9 +63,10 @@ public class ReconciliationMatcher {
             }
         }
 
-        long feedTotal = feed.stream().mapToLong(SettlementRecord::amount).sum();
-        long ledgerTotal = ledger.stream().mapToLong(LedgerEntry::amount).sum();
-        long difference = feedTotal - ledgerTotal;
+        // Exact totals: a caller-supplied feed can sum past Long.MAX; that is rejected (422), never wrapped.
+        long feedTotal = feed.stream().mapToLong(SettlementRecord::amount).reduce(0L, ReconciliationMatcher::addExact);
+        long ledgerTotal = ledger.stream().mapToLong(LedgerEntry::amount).reduce(0L, ReconciliationMatcher::addExact);
+        long difference = subtractExact(feedTotal, ledgerTotal);
         boolean balanced = discrepancies.isEmpty() && difference == 0;
         String summary = balanced
                 ? "Conciliado: " + matched + " referencias cuadran; feed y ledger coinciden en " + feedTotal + " centavos."
@@ -72,5 +75,21 @@ public class ReconciliationMatcher {
 
         return new ReconciliationReport(feed.size(), ledger.size(), matched,
                 feedTotal, ledgerTotal, difference, discrepancies, balanced, summary);
+    }
+
+    private static long addExact(long a, long b) {
+        try {
+            return Math.addExact(a, b);
+        } catch (ArithmeticException e) {
+            throw new AmountOverflowException("A reconciliation total is outside the 64-bit range; it is rejected, not wrapped.");
+        }
+    }
+
+    private static long subtractExact(long a, long b) {
+        try {
+            return Math.subtractExact(a, b);
+        } catch (ArithmeticException e) {
+            throw new AmountOverflowException("A reconciliation difference is outside the 64-bit range; it is rejected, not wrapped.");
+        }
     }
 }

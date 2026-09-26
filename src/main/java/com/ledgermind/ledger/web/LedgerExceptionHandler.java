@@ -1,6 +1,7 @@
 package com.ledgermind.ledger.web;
 
 import com.ledgermind.ledger.AccountNotFoundException;
+import com.ledgermind.ledger.AmountOverflowException;
 import com.ledgermind.ledger.IdempotencyConflictException;
 import com.ledgermind.ledger.AccountFrozenException;
 import com.ledgermind.ledger.InsufficientFundsException;
@@ -35,6 +36,14 @@ public class LedgerExceptionHandler {
         pd.setTitle("Cuenta congelada por sobregiro");
         pd.setProperty("accountId", e.getAccountId());
         pd.setProperty("overdraftFlagId", e.getFlagId());
+        return pd;
+    }
+
+    /** 422: an amount, counter or total would leave the 64-bit range; the write was rejected, nothing wrapped. */
+    @ExceptionHandler(AmountOverflowException.class)
+    ProblemDetail handleAmountOverflow(AmountOverflowException e) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+        pd.setTitle("Amount outside the 64-bit range");
         return pd;
     }
 

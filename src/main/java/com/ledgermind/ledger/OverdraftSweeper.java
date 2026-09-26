@@ -1,5 +1,7 @@
 package com.ledgermind.ledger;
 
+import java.math.BigInteger;
+
 import java.time.Instant;
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -112,7 +114,9 @@ public class OverdraftSweeper {
         range.addValue("w2", w2);
 
         // Solo la COLA desde la marca de agua: por cuenta, lo que suma toda la cola y lo que suma hasta w2.
-        Map<Long, long[]> tail = new HashMap<>();   // account -> {d, c, du, cu, firstId, lastId}
+        // Only first/last posting id per account are read from the tail. The sums are NOT read as long: a NUMERIC
+        // sum above Long.MAX made rs.getLong throw, and the whole pass (the overdraft freeze) stopped.
+        Map<Long, long[]> tail = new HashMap<>();   // account -> {firstId, lastId}
         named.query("SELECT account_id, sum(d) AS d, sum(c) AS c,"
                 + " sum(CASE WHEN id <= :w2 THEN d ELSE 0 END) AS du, sum(CASE WHEN id <= :w2 THEN c ELSE 0 END) AS cu,"
                 + " min(id) AS first_id, max(id) AS last_id FROM ("
@@ -121,14 +125,14 @@ public class OverdraftSweeper {
                 + "   UNION ALL"
                 + "   SELECT credit_account_id, 0::bigint, amount, id FROM posting WHERE id > :w AND id <= :max"
                 + " ) t GROUP BY account_id", range, rs -> {
-                    tail.put(rs.getLong("account_id"), new long[] {rs.getLong("d"), rs.getLong("c"),
-                            rs.getLong("du"), rs.getLong("cu"), rs.getLong("first_id"), rs.getLong("last_id")});
+                    tail.put(rs.getLong("account_id"), new long[] {rs.getLong("first_id"), rs.getLong("last_id")});
                 });
 
         // (a2) Cada cuenta TOCADA por la cola se re-deriva desde TODOS sus asientos (id <= max), no desde el total
         // incremental: asi la edicion de un asiento ya barrido (debajo de la marca) se ve en cuanto la cuenta vuelve a
         // moverse, y una deriva del total incremental no puede costar una deteccion en una cuenta tocada.
-        Map<Long, long[]> full = new HashMap<>();   // account -> {fd, fc, fdu, fcu}
+        // Exact sums: PostgreSQL sum(bigint) is NUMERIC and can exceed Long.MAX; the decision is taken in BigInteger.
+        Map<Long, BigInteger[]> full = new HashMap<>();   // account -> {fd, fc, fdu, fcu}
         named.query("SELECT account_id, sum(d) AS fd, sum(c) AS fc,"
                 + " sum(CASE WHEN id <= :w2 THEN d ELSE 0 END) AS fdu, sum(CASE WHEN id <= :w2 THEN c ELSE 0 END) AS fcu"
                 + " FROM ("
@@ -139,8 +143,9 @@ public class OverdraftSweeper {
                 + "     WHERE credit_account_id IN (:ids) AND id <= :max"
                 + " ) t GROUP BY account_id",
                 new MapSqlParameterSource(range.getValues()).addValue("ids", tail.keySet()), rs -> {
-                    full.put(rs.getLong("account_id"), new long[] {rs.getLong("fd"), rs.getLong("fc"),
-                            rs.getLong("fdu"), rs.getLong("fcu")});
+                    full.put(rs.getLong("account_id"), new BigInteger[] {exact(rs.getBigDecimal("fd")),
+                            exact(rs.getBigDecimal("fc")), exact(rs.getBigDecimal("fdu")),
+                            exact(rs.getBigDecimal("fcu"))});
                 });
 
         List<Object[]> shadowUpserts = new ArrayList<>();
@@ -150,21 +155,23 @@ public class OverdraftSweeper {
         for (Map<String, Object> row : rows) {
             long id = ((Number) row.get("id")).longValue();
             long[] t = tail.get(id);
-            long[] f = full.getOrDefault(id, new long[4]);
+            BigInteger[] f = full.getOrDefault(id, ZERO_SUMS);
             long pending = ((Number) row.get("pending_debits")).longValue();
             boolean allowNegative = (Boolean) row.get("allow_negative");
-            long derivedAvailable = f[1] - f[0] - pending;
-            if (!allowNegative && derivedAvailable < 0) {
+            BigInteger derivedAvailable = f[1].subtract(f[0]).subtract(BigInteger.valueOf(pending));
+            if (!allowNegative && derivedAvailable.signum() < 0) {
                 long storedDebits = ((Number) row.get("posted_debits")).longValue();
                 long storedCredits = ((Number) row.get("posted_credits")).longValue();
                 flagged += jdbc.update("INSERT INTO overdraft_flag (account_id, derived_debits, derived_credits,"
                         + " stored_debits, stored_credits, pending_debits, derived_available, stored_available,"
                         + " posting_id_from, posting_id_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                         + " ON CONFLICT (account_id) WHERE cleared_at IS NULL DO NOTHING",
-                        id, f[0], f[1], storedDebits, storedCredits, pending, derivedAvailable,
-                        storedCredits - storedDebits - pending, t[4], t[5]);
+                        id, saturate(f[0]), saturate(f[1]), storedDebits, storedCredits, pending,
+                        saturate(derivedAvailable), saturate(BigInteger.valueOf(storedCredits)
+                                .subtract(BigInteger.valueOf(storedDebits)).subtract(BigInteger.valueOf(pending))),
+                        t[0], t[1]);
             }
-            shadowUpserts.add(new Object[] {id, f[2], f[3], w2});
+            shadowUpserts.add(new Object[] {id, saturate(f[2]), saturate(f[3]), w2});
         }
         jdbc.batchUpdate("INSERT INTO account_derived_total (account_id, derived_debits, derived_credits,"
                 + " as_of_posting_id) VALUES (?, ?, ?, ?) ON CONFLICT (account_id) DO UPDATE SET"
@@ -186,6 +193,24 @@ public class OverdraftSweeper {
      * Camino caliente de la transferencia: UNA lectura por el indice parcial overdraft_flag_one_active_per_account.
      * Sin re-derivacion. Tira {@link AccountFrozenException} si el origen o el destino estan congelados.
      */
+    private static final BigInteger[] ZERO_SUMS = {BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO};
+
+    private static BigInteger exact(java.math.BigDecimal sum) {
+        return sum == null ? BigInteger.ZERO : sum.toBigIntegerExact();
+    }
+
+    /**
+     * The flag and shadow-total columns are BIGINT (no migration). A value outside the 64-bit range is stored
+     * SATURATED at Long.MIN_VALUE / Long.MAX_VALUE: the evidence keeps its sign and reads "beyond the range";
+     * the freeze decision itself was taken on the exact value.
+     */
+    static long saturate(BigInteger v) {
+        if (v.bitLength() < 64) {
+            return v.longValue();
+        }
+        return v.signum() > 0 ? Long.MAX_VALUE : Long.MIN_VALUE;
+    }
+
     public void assertNotFrozen(long debitAccountId, long creditAccountId) {
         List<long[]> active = jdbc.query("SELECT account_id, id FROM overdraft_flag"
                         + " WHERE account_id IN (?, ?) AND cleared_at IS NULL LIMIT 1",

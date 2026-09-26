@@ -94,12 +94,22 @@ public class Account {
 
     /** Aplica un debito confirmado (sale plata de esta cuenta). */
     void applyDebit(long amount) {
-        this.postedDebits += amount;
+        this.postedDebits = addExact(postedDebits, amount, "posted_debits");
     }
 
     /** Aplica un credito confirmado (entra plata a esta cuenta). */
     void applyCredit(long amount) {
-        this.postedCredits += amount;
+        this.postedCredits = addExact(postedCredits, amount, "posted_credits");
+    }
+
+    /** Exact counter arithmetic: past Long.MAX the write is rejected (422), never wrapped into a negative counter. */
+    private long addExact(long counter, long amount, String column) {
+        try {
+            return Math.addExact(counter, amount);
+        } catch (ArithmeticException e) {
+            throw new AmountOverflowException("The transfer would take " + column + " of account '" + address
+                    + "' beyond the 64-bit range; nothing was written.");
+        }
     }
 
     public Long getId() {
