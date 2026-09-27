@@ -5,16 +5,22 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Rate-limit GLOBAL simple (ventana fija, 30 pedidos por 10 s) sobre {@code /api/demo/**} (los cinco endpoints de la
- * demo, anonimos solo bajo el perfil {@code demo}) y {@code /api/journal/**} (con X-API-Key; verify/audit son O(n)).
- * Corre despues de Spring Security: solo cuenta pedidos que pasaron la autenticacion (un 401 no cuenta; los anonimos
- * de la demo si). No es por cliente: un solo llamador, con clave o anonimo en la demo, puede agotar la ventana y dejar
- * en 429 las auditorias de todos. /api/transfers, /api/accounts y /api/reconciliation no tienen limite. El paso
- * siguiente es un contador por clave.
+ * Per-caller rate limit (fixed window, 30 requests per 10 s) on {@code /api/demo/**} (the five demo endpoints,
+ * anonymous only under the {@code demo} profile) and {@code /api/journal/**} (keyed; verify/audit are O(n)).
+ * Runs after Spring Security, so only requests that passed authentication are counted (a 401 is not). Each API key
+ * (its key_id) has its own window; every anonymous demo caller shares ONE window. So one caller cannot put another
+ * key's audits in 429, and the anonymous demo cannot put keyed callers in 429. Windows are keyed by the key_ids of the
+ * keys file, so there are at most (keys in the file + 1) of them. /api/transfers, /api/accounts and
+ * /api/reconciliation are not rate limited. Paths are matched on the decoded routed path, not on the resolved handler.
  */
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
@@ -22,14 +28,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private static final int MAX_PER_WINDOW = 30;
     private static final long WINDOW_MS = 10_000;
 
-    private long windowStart = System.currentTimeMillis();
-    private int count = 0;
+    /** The bucket every unauthenticated (anonymous demo) caller shares. Key buckets are prefixed, so no key_id collides. */
+    static final String ANONYMOUS_BUCKET = "anonymous";
+
+    private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
         String path = routedPath(request);
-        if ((path.startsWith("/api/demo/") || path.startsWith("/api/journal/")) && !allow()) {
+        if ((path.startsWith("/api/demo/") || path.startsWith("/api/journal/")) && !allow(callerBucket())) {
             response.setStatus(429);                          // Too Many Requests
             response.setContentType("application/json");
             response.getWriter().write(
@@ -50,12 +58,37 @@ public class RateLimitFilter extends OncePerRequestFilter {
         return pathInfo == null ? servletPath : servletPath + pathInfo;
     }
 
-    private synchronized boolean allow() {
-        long now = System.currentTimeMillis();
-        if (now - windowStart > WINDOW_MS) {
-            windowStart = now;
-            count = 0;
+    /**
+     * The caller's bucket: {@code key:<key_id>} for a request authenticated with an API key, the shared
+     * {@link #ANONYMOUS_BUCKET} otherwise (the anonymous demo endpoints).
+     */
+    static String callerBucket() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth instanceof AnonymousAuthenticationToken || !auth.isAuthenticated()
+                || auth.getName() == null) {
+            return ANONYMOUS_BUCKET;
         }
-        return ++count <= MAX_PER_WINDOW;
+        return "key:" + auth.getName();
+    }
+
+    private boolean allow(String bucket) {
+        long now = System.currentTimeMillis();
+        Window window = windows.computeIfAbsent(bucket, b -> new Window(now));
+        synchronized (window) {
+            if (now - window.start > WINDOW_MS) {
+                window.start = now;
+                window.count = 0;
+            }
+            return ++window.count <= MAX_PER_WINDOW;
+        }
+    }
+
+    private static final class Window {
+        private long start;
+        private int count;
+
+        private Window(long start) {
+            this.start = start;
+        }
     }
 }
