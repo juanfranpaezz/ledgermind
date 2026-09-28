@@ -1,5 +1,6 @@
 package com.ledgermind.ledger.web;
 
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -18,8 +19,11 @@ import org.springframework.security.web.authentication.AnonymousAuthenticationFi
  * {@code /api/demo/**} wildcard, so a future demo endpoint is not anonymous by accident). In every other profile the
  * anonymous set is empty.
  *
+ * <p>Outside the {@code demo} profile this chain also matches the actuator {@code prometheus} endpoint, so metrics need
+ * an X-API-Key there (security gate r3, A2). Under {@code demo} they stay anonymous for the bundled observability stack.
+ *
  * <p>Order 0: before the {@code /mcp} chain (1, disjoint matcher) and before the catch-all default chain (2), which
- * keeps serving the static page and the actuator.
+ * keeps serving the static page and the rest of the actuator.
  */
 @Configuration
 class ApiSecurityConfig {
@@ -34,7 +38,12 @@ class ApiSecurityConfig {
             throws Exception {
         boolean demo = environment.acceptsProfiles(Profiles.of("demo"));
         return http
-                .securityMatcher("/api/**")
+                .securityMatchers(matchers -> {
+                    matchers.requestMatchers("/api/**");
+                    if (!demo) {
+                        matchers.requestMatchers(EndpointRequest.to("prometheus"));
+                    }
+                })
                 .authorizeHttpRequests(auth -> {
                     if (demo) {
                         auth.requestMatchers(HttpMethod.POST, DEMO_ANONYMOUS_POST).permitAll()

@@ -3,7 +3,9 @@
 ## Status
 Accepted in part — 2026-09-27. D1, D2, D5 are built. D3 is built as per-caller buckets on the routed path; the
 handler-keyed half is not built. D4 (bounded request-time audit) is **proposed and not built**: today every audit
-recomputes the whole chain and replays every posting.
+recomputes the whole chain and replays every posting. The handler-keyed half of D3 and all of D4 are descoped for now
+(2026-09-28): the decoded-path limiter already counts percent-encoded paths, and the O(n) REST audit is rate limited
+per caller.
 
 ## Context
 The REST surface under `/api` was open in the `default` profile, the audit endpoint reads the whole journal on every
