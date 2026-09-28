@@ -72,12 +72,17 @@ class DemoSupportController {
         return reconciliation.reconcileDemoFeed();
     }
 
-    /** Simula un atacante con acceso a la DB que edita el monto del ultimo asiento (rompe la cadena). */
+    /**
+     * Simulates an attacker with DB access who edits the amount of the latest CHAINED posting, so the hash-chain is
+     * what breaks. Editing the latest posting instead could hit one the chainer has not linked yet (it runs every
+     * 5 s): then the chain stayed intact and only the balance replay fired (docs-truth gate r3, 2026-09-26).
+     */
     @PostMapping("/tamper")
     DemoMessage tamper() {
-        Long id = jdbc.queryForObject("SELECT max(id) FROM posting", Long.class);
+        Long id = jdbc.queryForList("SELECT posting_id FROM posting_hash ORDER BY seq DESC LIMIT 1", Long.class)
+                .stream().findFirst().orElse(null);
         if (id == null) {
-            return new DemoMessage("No hay asientos para alterar. Reinicia la demo primero.");
+            return new DemoMessage("No hay asientos encadenados para alterar. Reinicia la demo primero.");
         }
         jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", id);
         return new DemoMessage("Se altero por SQL directo el monto del asiento #" + id
@@ -86,8 +91,9 @@ class DemoSupportController {
 
     /**
      * Fixed idempotency key of the demo: every call after the first replays, so anonymous callers add at most one
-     * posting per reset. The demo tamper edits the LATEST posting; once that is this posting, later idempotency calls
-     * get 409 (the stored amount no longer matches the request) and still add no posting, until the next reset.
+     * posting per reset. The demo tamper edits the latest CHAINED posting; once that is this posting (the chainer links
+     * it within one cycle), later idempotency calls get 409 (the stored amount no longer matches the request) and still
+     * add no posting, until the next reset.
      */
     static final String DEMO_IDEMPOTENCY_KEY = "demo-dup";
 

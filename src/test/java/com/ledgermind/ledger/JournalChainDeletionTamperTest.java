@@ -23,6 +23,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  *
  * <p>Both outcomes: before the deletion the audit reports no tamper; after it, tamper at the link that followed the
  * deleted one. Scheduled jobs are disabled (huge delays) so chaining and checkpointing are driven by the test.
+ *
+ * <p>Also pinned here, same fixture: an edit of a chained posting in the tail AFTER the last checkpoint is still
+ * tamper when the editor does not recompute the links (README:23 and :213 wording, docs-truth gate r3).
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",
@@ -88,5 +91,39 @@ class JournalChainDeletionTamperTest {
         assertThat(tampered.brokenAtSeq()).isEqualTo(lastSeq);
         assertThat(tampered.tamperDetected()).isTrue();
         assertThat(tampered.verdict()).contains("MANIPULACION DETECTADA");
+    }
+
+    @Test
+    void editing_a_chained_posting_after_the_last_checkpoint_without_relinking_is_tamper() {
+        ledger.createAccount("external:funding", "ARS", true);
+        ledger.createAccount("wallet:a", "ARS", false);
+        ledger.createAccount("wallet:b", "ARS", false);
+        ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
+        ledger.transfer("wallet:a", "wallet:b", 30_000, "t-1");
+        chainer.chainPendingPostings();
+        assertThat(checkpoints.checkpointIfHeadAdvanced()).isPresent();   // the signed head covers seq 1..2
+
+        Posting tail = ledger.transfer("wallet:a", "wallet:b", 20_000, "t-2");
+        chainer.chainPendingPostings();                                   // chained at seq 3, NOT checkpointed
+        Long tailSeq = jdbc.queryForObject("SELECT seq FROM posting_hash WHERE posting_id = ?", Long.class,
+                tail.getId());
+
+        // does not fire: clean journal with a chained tail after the checkpoint
+        var clean = checkpoints.audit();
+        assertThat(clean.signedChainSeq()).isLessThan(tailSeq);
+        assertThat(clean.tamperDetected()).isFalse();
+        assertThat(clean.chainIntact()).isTrue();
+
+        // TAMPER: edit the tail posting's amount and put both counters in line with it, but do NOT recompute its link
+        jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", tail.getId());
+        jdbc.update("UPDATE account SET posted_debits = posted_debits + 1 WHERE id = ?", tail.getDebitAccountId());
+        jdbc.update("UPDATE account SET posted_credits = posted_credits + 1 WHERE id = ?", tail.getCreditAccountId());
+
+        // fires: the stored entry_hash of the tail link no longer recomputes
+        var tampered = checkpoints.audit();
+        assertThat(tampered.balancesConsistent()).as("counters were adjusted, so the balance replay is quiet").isTrue();
+        assertThat(tampered.chainIntact()).isFalse();
+        assertThat(tampered.brokenAtSeq()).isEqualTo(tailSeq);
+        assertThat(tampered.tamperDetected()).isTrue();
     }
 }

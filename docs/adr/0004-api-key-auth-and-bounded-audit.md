@@ -1,4 +1,4 @@
-# ADR-0004: API-key auth on `/api`, per-caller rate limit, exact overflow handling, bounded audit (proposed)
+# ADR-0004: API-key auth on `/api`, per-caller rate limit, exact overflow handling, bounded audit (accepted in part; D4 proposed)
 
 ## Status
 Accepted in part — 2026-09-27. D1, D2, D5 are built. D3 is built as per-caller buckets on the routed path; the
@@ -33,7 +33,9 @@ Only under the `demo` profile, five method+path pairs are anonymous, listed lite
 `RateLimitFilter` (a servlet filter that runs after the security chain, so a `401` is never counted) keeps one fixed
 window per caller, by default 30 requests per 10 s (`ledgermind.rate-limit.max-per-window`,
 `ledgermind.rate-limit.window-ms`): `key:<key_id>` for a keyed request, and one `anonymous` window shared by
-all anonymous demo callers. It covers `/api/demo/*` and `/api/journal/*`, matched on the decoded, normalized path
+all anonymous demo callers. A window resets on the first request that arrives more than `window-ms` after it
+opened, so up to twice the limit fits in a `window-ms` span that straddles a boundary (`RateLimitFilterClockTest`).
+It covers `/api/demo/**` and `/api/journal/**` (nested paths such as `/api/journal/checkpoint/verify` too), matched on the decoded, normalized path
 the container routes (`RateLimitEncodedPathTest`). One key using up its window does not limit another key, and the
 anonymous demo cannot limit keyed callers (`RateLimitPerCallerTest`). The number of windows is bounded by the keys
 file plus one.
@@ -75,12 +77,14 @@ sequenceDiagram
     participant H as Handler
     C->>T: GET /api/journal/audit (X-API-Key)
     T->>S: routed path /api/journal/audit
-    alt demo profile and one of the five anonymous pairs
-        S->>R: anonymous
-    else key header matches a sha256 line
-        S->>R: principal = key_id
-    else no key or unknown key
-        S-->>C: 401 auth_missing / auth_invalid
+    alt X-API-Key header present and matches a sha256 line
+        S->>R: principal = key_id (window key:<key_id>)
+    else X-API-Key header present, matches nothing
+        S-->>C: 401 auth_invalid (even on a demo pair)
+    else no header, demo profile, one of the five anonymous pairs
+        S->>R: anonymous (shared anonymous window)
+    else no header
+        S-->>C: 401 auth_missing
     end
     alt window of this caller used up
         R-->>C: 429

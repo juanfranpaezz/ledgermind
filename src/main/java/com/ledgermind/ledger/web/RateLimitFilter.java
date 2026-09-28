@@ -7,6 +7,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -16,7 +18,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Per-caller rate limit (fixed window; by default 30 requests per 10 s, set by {@code ledgermind.rate-limit.max-per-window}
- * and {@code ledgermind.rate-limit.window-ms}) on {@code /api/demo/**} (the five demo endpoints,
+ * and {@code ledgermind.rate-limit.window-ms}; a window resets on the first request that arrives more than window-ms
+ * after it opened, so up to twice the limit fits in a window-ms span that straddles a boundary) on {@code /api/demo/**} (the five demo endpoints,
  * anonymous only under the {@code demo} profile) and {@code /api/journal/**} (keyed; verify/audit are O(n)).
  * Runs after Spring Security, so only requests that passed authentication are counted (a 401 is not). Each API key
  * (its key_id) has its own window; every anonymous demo caller shares ONE window. So one caller cannot put another
@@ -29,19 +32,27 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final int maxPerWindow;
     private final long windowMs;
+    private final LongSupplier clock;
 
     /** The bucket every unauthenticated (anonymous demo) caller shares. Key buckets are prefixed, so no key_id collides. */
     static final String ANONYMOUS_BUCKET = "anonymous";
 
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
+    @Autowired
     public RateLimitFilter(@Value("${ledgermind.rate-limit.max-per-window:30}") int maxPerWindow,
                            @Value("${ledgermind.rate-limit.window-ms:10000}") long windowMs) {
+        this(maxPerWindow, windowMs, System::currentTimeMillis);
+    }
+
+    /** Same filter with an injected millisecond clock, so tests can place requests exactly on a window boundary. */
+    RateLimitFilter(int maxPerWindow, long windowMs, LongSupplier clock) {
         if (maxPerWindow < 1 || windowMs < 1) {
             throw new IllegalArgumentException("ledgermind.rate-limit.max-per-window and window-ms must be >= 1");
         }
         this.maxPerWindow = maxPerWindow;
         this.windowMs = windowMs;
+        this.clock = clock;
     }
 
     @Override
@@ -83,7 +94,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private boolean allow(String bucket) {
-        long now = System.currentTimeMillis();
+        long now = clock.getAsLong();
         Window window = windows.computeIfAbsent(bucket, b -> new Window(now));
         synchronized (window) {
             if (now - window.start > windowMs) {
