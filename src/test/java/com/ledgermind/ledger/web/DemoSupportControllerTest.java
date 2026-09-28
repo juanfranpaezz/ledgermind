@@ -35,7 +35,7 @@ class DemoSupportControllerTest {
     private JournalCheckpointService checkpoints;
 
     @Test
-    void reset_deja_integro_y_tamper_es_detectado() {
+    void reset_leaves_it_intact_and_tamper_is_detected() {
         demo.reset();
         var clean = checkpoints.audit();
         assertThat(clean.checkpointPresent()).isTrue();

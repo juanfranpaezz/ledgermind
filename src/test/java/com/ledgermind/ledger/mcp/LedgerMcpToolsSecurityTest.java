@@ -35,13 +35,13 @@ class LedgerMcpToolsSecurityTest {
 
     @Test
     @WithMockUser(authorities = "SCOPE_ledger.read")
-    void con_el_scope_correcto_la_auditoria_se_ejecuta() {
+    void with_the_right_scope_the_audit_runs() {
         assertThat(tools.verifyJournalIntegrity()).isNotNull();
     }
 
     @Test
-    @WithMockUser(authorities = "SCOPE_otra")
-    void sin_el_scope_ledger_read_la_tool_es_denegada() {
+    @WithMockUser(authorities = "SCOPE_other")
+    void without_the_ledger_read_scope_the_tool_is_denied() {
         assertThatThrownBy(tools::verifyJournalIntegrity)
                 .isInstanceOf(AccessDeniedException.class);
     }

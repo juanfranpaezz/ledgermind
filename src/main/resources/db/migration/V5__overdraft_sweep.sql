@@ -1,15 +1,15 @@
--- Overdraft sweep with a watermark + freeze of the flagged account.
+-- Barrido de sobregiro con marca de agua + congelamiento de la cuenta marcada (dec-151, 2026-09-24).
 --
--- The posted_debits/posted_credits counters are advanced with += on the write path and NEVER recomputed,
--- so the account_no_overdraft CHECK (V1) looks at the cached number, not at the journal. This sweep re-derives the balance
--- from the journal, but ONLY for the accounts touched by new postings since the last watermark, and freezes
--- the account whose derived balance violates its overdraft rule. The transfer's hot path only adds ONE
--- indexed read (overdraft_flag_one_active_per_account); it re-derives nothing.
+-- Los contadores posted_debits/posted_credits se adelantan con += en el camino de escritura y NUNCA se recomputan,
+-- asi que el CHECK account_no_overdraft (V1) mira el numero cacheado, no el journal. Este barrido re-deriva el saldo
+-- desde el journal, pero SOLO para las cuentas que tocaron asientos nuevos desde la ultima marca de agua, y congela
+-- la cuenta cuyo saldo derivado viola su regla de sobregiro. El camino caliente de la transferencia solo agrega UNA
+-- lectura indexada (overdraft_flag_one_active_per_account); no re-deriva nada.
 
--- Sweep watermark: persisted so that a restart does NOT re-sweep or lose its place (single row id = 1).
+-- Marca de agua del barrido: persistida para que un reinicio NO re-barra ni pierda el punto (fila unica id = 1).
 CREATE TABLE overdraft_sweep_state (
     id                     SMALLINT     PRIMARY KEY CHECK (id = 1),
-    watermark_posting_id   BIGINT       NOT NULL DEFAULT 0,   -- every posting with id <= this is already summed
+    watermark_posting_id   BIGINT       NOT NULL DEFAULT 0,   -- todos los asientos con id <= esto ya estan sumados
     last_sweep_at          TIMESTAMPTZ,
     last_scanned_from      BIGINT,
     last_scanned_to        BIGINT,
@@ -19,7 +19,7 @@ CREATE TABLE overdraft_sweep_state (
 );
 INSERT INTO overdraft_sweep_state (id) VALUES (1);
 
--- Totals re-derived from the journal per account, up to as_of_posting_id (what makes the sweep incremental).
+-- Totales re-derivados del journal por cuenta, hasta as_of_posting_id (lo que hace incremental al barrido).
 CREATE TABLE account_derived_total (
     account_id        BIGINT  PRIMARY KEY REFERENCES account(id),
     derived_debits    BIGINT  NOT NULL,
@@ -27,8 +27,8 @@ CREATE TABLE account_derived_total (
     as_of_posting_id  BIGINT  NOT NULL
 );
 
--- Overdraft flag = freeze. It stores the evidence (derived vs stored, range of postings) and who
--- lifted it and why. Only one ACTIVE flag per account.
+-- Marca de sobregiro = congelamiento. Guarda la evidencia (derivado vs guardado, rango de asientos) y quien la
+-- levanto y por que. Una sola marca ACTIVA por cuenta.
 CREATE TABLE overdraft_flag (
     id                 BIGINT        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     account_id         BIGINT        NOT NULL REFERENCES account(id),
@@ -52,17 +52,17 @@ CREATE TABLE overdraft_flag (
 );
 CREATE UNIQUE INDEX overdraft_flag_one_active_per_account ON overdraft_flag (account_id) WHERE cleared_at IS NULL;
 
--- COMMITTED state of the chainer. Every run writes it in the SAME transaction as its
--- links, so the audit reads it in its own snapshot (it used to be an in-memory stamp taken BEFORE the commit).
--- pass_xid = the xid the run takes when it starts (pg_current_xact_id): every HIGHER xid was assigned AFTER the pass
--- (xids are assigned in order). An unlinked posting written by such an xid and with a created_at earlier than
--- run_started_at minus the window cannot be a slow legitimate transaction (that one already had its lower xid when the
--- chainer passed): it is a write outside the app.
+-- Estado COMMITEADO del encadenador (A4 del gate, 2026-09-24). Cada corrida lo escribe en la MISMA transaccion que sus
+-- eslabones, asi la auditoria lo lee en su misma foto (antes era un sello en memoria tomado ANTES del commit).
+-- pass_xid = el xid que la corrida toma al empezar (pg_current_xact_id): todo xid MAYOR se asigno DESPUES de la pasada
+-- (los xid se asignan en orden). Un asiento sin eslabon escrito por un xid asi y con created_at anterior a
+-- run_started_at menos la ventana no puede ser una transaccion legitima lenta (esa ya tenia su xid, menor, cuando paso
+-- el encadenador): es escritura por fuera de la app.
 CREATE TABLE journal_chainer_state (
     id               SMALLINT     PRIMARY KEY CHECK (id = 1),
-    run_started_at   TIMESTAMPTZ  NOT NULL,   -- app clock, taken BEFORE the run's snapshot
+    run_started_at   TIMESTAMPTZ  NOT NULL,   -- reloj de la app, tomado ANTES de la foto de la corrida
     pass_xid         BIGINT       NOT NULL,
-    run_finished_at  TIMESTAMPTZ  NOT NULL,   -- app clock, at the end of the run (before the commit)
+    run_finished_at  TIMESTAMPTZ  NOT NULL,   -- reloj de la app, al final de la corrida (antes del commit)
     chained          INT          NOT NULL,
     hit_batch_limit  BOOLEAN      NOT NULL
 );

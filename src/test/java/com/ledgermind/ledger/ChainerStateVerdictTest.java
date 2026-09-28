@@ -74,7 +74,7 @@ class ChainerStateVerdictTest {
     // ------------------------------------------------------------ causes and coverage reason, with a fixed clock
 
     @Test
-    void estado_1_detenido_sin_actividad_hace_mas_de_3_ciclos() {
+    void state_1_stopped_no_activity_for_more_than_3_cycles() {
         assertThat(JournalCheckpointService.classifyStale(5, NOW, NOW.minusMillis(3 * DELAY + 1), DELAY))
                 .isEqualTo(StaleCause.CHAINER_STOPPED);
         Coverage c = cov(StaleCause.CHAINER_STOPPED, 5, 5, 0, 16_000, 5_000);
@@ -84,7 +84,7 @@ class ChainerStateVerdictTest {
     }
 
     @Test
-    void estado_2_atrasado_es_transitorio_con_ventana_y_no_es_tamper() {
+    void state_2_behind_is_transient_with_window_and_is_not_tamper() {
         assertThat(JournalCheckpointService.classifyStale(1170, NOW, NOW.minusMillis(DELAY), DELAY))
                 .isEqualTo(StaleCause.CHAINER_BEHIND);
         Coverage c = cov(StaleCause.CHAINER_BEHIND, 3200, 1170, 0, 1_000, 80_000);
@@ -94,7 +94,7 @@ class ChainerStateVerdictTest {
     }
 
     @Test
-    void estado_3_evidencia_de_escritura_posterior_a_la_pasada_y_sin_checkpoint() {
+    void state_3_evidence_of_a_write_after_the_pass_and_no_checkpoint() {
         assertThat(JournalCheckpointService.classifyStale(0, NOW, NOW.minusSeconds(3600), DELAY))
                 .isEqualTo(StaleCause.NONE);
         Coverage c = cov(StaleCause.NONE, 1, 1, 1, 5_000, 5_000);
@@ -108,7 +108,7 @@ class ChainerStateVerdictTest {
     // ------------------------------------------------------------ integration on real postgres
 
     @Test
-    void rafaga_legitima_sin_manipulacion_no_dice_insercion_por_fuera() {
+    void legitimate_burst_without_tampering_does_not_report_outside_insertion() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         int n = 450;
@@ -146,7 +146,7 @@ class ChainerStateVerdictTest {
     }
 
     @Test
-    void asiento_viejo_que_aparece_despues_de_que_el_encadenador_vacio_la_cola_es_senal_de_insercion() {
+    void old_posting_appearing_after_the_chainer_drained_its_queue_signals_an_insertion() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.createAccount("wallet:b", "ARS", false);
@@ -173,7 +173,7 @@ class ChainerStateVerdictTest {
      * chainer took its snapshot. Deterministic: the same transaction (same xid) ages its created_at by 5 h.
      */
     @Test
-    void transaccion_legitima_abierta_durante_la_pasada_del_encadenador_no_es_insercion_por_fuera() throws Exception {
+    void legitimate_transaction_open_during_the_chainer_pass_is_not_an_outside_insertion() throws Exception {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.transfer("external:funding", "wallet:a", 100_000, "seed-a");
@@ -210,7 +210,7 @@ class ChainerStateVerdictTest {
 
     /** Positive control WITH a signed checkpoint: the insertion outside the app with an old date is still detected. */
     @Test
-    void insercion_por_fuera_con_fecha_vieja_despues_de_la_pasada_se_detecta_con_checkpoint_firmado() {
+    void outside_insertion_with_old_date_after_the_pass_is_detected_with_signed_checkpoint() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.createAccount("wallet:b", "ARS", false);

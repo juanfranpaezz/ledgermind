@@ -97,7 +97,7 @@ class UnchainedPostingCoverageTest {
     // ---------------------------------------------------------------- VERDE: sin falsas alarmas
 
     @Test
-    void ledger_limpio_encadenado_y_firmado_queda_verde() {
+    void clean_chained_and_signed_ledger_stays_green() {
         seedChainedAndSigned();
         var r = checkpoints.audit();
         log("clean", r);
@@ -107,7 +107,7 @@ class UnchainedPostingCoverageTest {
     }
 
     @Test
-    void asiento_legitimo_recien_posteado_sin_encadenar_queda_verde_pero_se_reporta() {
+    void just_posted_legitimate_unchained_posting_stays_green_but_is_reported() {
         seedChainedAndSigned();
         ledger.transfer("wallet:a", "wallet:b", 30_000, "fresh-legit");      // the chainer has not run yet
         var r = checkpoints.audit();
@@ -119,7 +119,7 @@ class UnchainedPostingCoverageTest {
     }
 
     @Test
-    void borde_de_la_ventana_dentro_verde_fuera_rojo() {
+    void window_edge_inside_green_outside_red() {
         seedChainedAndSigned();
         Posting p = ledger.transfer("wallet:a", "wallet:b", 30_000, "edge");
         // effective window in this test = 3 h (3 x chain-delay 1 h). 170 min: inside.
@@ -136,7 +136,7 @@ class UnchainedPostingCoverageTest {
     }
 
     @Test
-    void ventana_efectiva_en_produccion_es_60s_y_nunca_menor_que_3_ciclos_del_encadenador() throws Exception {
+    void effective_production_window_is_60s_and_never_below_3_chainer_cycles() throws Exception {
         Method m = JournalCheckpointService.class.getDeclaredMethod("effectiveUnchainedGraceMs", long.class, long.class);
         m.setAccessible(true);
         assertThat((long) m.invoke(null, 60_000L, 5_000L)).isEqualTo(60_000L);          // defaults de application
@@ -146,7 +146,7 @@ class UnchainedPostingCoverageTest {
     // ---------------------------------------------------------------- RED: what the rule DOES see
 
     @Test
-    void acunacion_con_asiento_viejo_sin_encadenar_se_detecta() {
+    void minting_with_an_old_unchained_posting_is_detected() {
         seedChainedAndSigned();
         mint(777_000, "FORGED-STALE", "now() - interval '1 day'");
         assertThat(ledger.getByAddress("wallet:b").availableBalance()).isEqualTo(877_000);
@@ -162,7 +162,7 @@ class UnchainedPostingCoverageTest {
     }
 
     @Test
-    void hermano_insercion_sin_ajustar_contadores_ya_se_detectaba() {
+    void sibling_insertion_without_adjusting_counters_was_already_detected() {
         seedChainedAndSigned();
         jdbc.update("INSERT INTO posting (debit_account_id, credit_account_id, amount, asset, idempotency_key)"
                 + " VALUES (1, 3, 555000, 'ARS', 'FORGED-NOBUMP')");
@@ -173,7 +173,7 @@ class UnchainedPostingCoverageTest {
     }
 
     @Test
-    void edicion_compensada_sobre_dos_asientos_viejos_sin_encadenar_se_detecta() {
+    void offsetting_edit_on_two_old_unchained_postings_is_detected() {
         seedChainedAndSigned();
         Posting x = ledger.transfer("wallet:a", "wallet:b", 30_000, "comp-x");
         Posting y = ledger.transfer("wallet:a", "wallet:b", 20_000, "comp-y");
@@ -186,7 +186,7 @@ class UnchainedPostingCoverageTest {
     }
 
     @Test
-    void acunacion_vieja_sin_checkpoint_firmado_tambien_se_detecta() {
+    void old_minting_without_a_signed_checkpoint_is_also_detected() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.createAccount("wallet:b", "ARS", false);
@@ -204,7 +204,7 @@ class UnchainedPostingCoverageTest {
     // ---------------------------------------------------------------- KNOWN GAP: what the rule does NOT see
 
     @Test
-    void KNOWN_GAP_acunacion_reciente_es_indistinguible_de_un_asiento_legitimo_en_ventana() {
+    void KNOWN_GAP_recent_minting_is_indistinguishable_from_a_legitimate_posting_in_window() {
         seedChainedAndSigned();
         mint(777_000, "FORGED-FRESH", "now()");
         var r = checkpoints.audit();
@@ -215,7 +215,7 @@ class UnchainedPostingCoverageTest {
     }
 
     @Test
-    void KNOWN_GAP_acunacion_encadenada_por_el_job_queda_legitimada() {
+    void KNOWN_GAP_minting_chained_by_the_job_becomes_legitimate() {
         seedChainedAndSigned();
         mint(777_000, "FORGED-CHAINED", "now()");
         chainer.chainPendingPostings();
@@ -228,7 +228,7 @@ class UnchainedPostingCoverageTest {
     }
 
     @Test
-    void KNOWN_GAP_edicion_compensada_sobre_dos_asientos_recientes_sin_encadenar() {
+    void KNOWN_GAP_offsetting_edit_on_two_recent_unchained_postings() {
         seedChainedAndSigned();
         Posting x = ledger.transfer("wallet:a", "wallet:b", 30_000, "comp-fx");
         Posting y = ledger.transfer("wallet:a", "wallet:b", 20_000, "comp-fy");
@@ -242,7 +242,7 @@ class UnchainedPostingCoverageTest {
     // ---------------------------------------------------------------- the contract the agent reads
 
     @Test
-    void la_descripcion_del_tool_mcp_nombra_insercion_truncado_y_ventana() throws Exception {
+    void the_mcp_tool_description_names_insertion_truncation_and_window() throws Exception {
         String d = LedgerMcpTools.class.getMethod("verifyJournalIntegrity").getAnnotation(Tool.class).description();
         assertThat(d).contains("INSERTION").contains("truncation").contains("unchained")
                 .contains("unchainedPostings").contains("staleUnchainedPostings");

@@ -16,7 +16,7 @@ class ReconciliationMatcherTest {
     private static final Instant T = Instant.parse("2026-06-12T12:00:00Z");
 
     @Test
-    void cuadra_cuando_feed_y_ledger_coinciden() {
+    void balances_when_feed_and_ledger_match() {
         List<SettlementRecord> feed = List.of(
                 new SettlementRecord("ref-1", 1000, T),
                 new SettlementRecord("ref-2", 2000, T));
@@ -34,7 +34,7 @@ class ReconciliationMatcherTest {
     }
 
     @Test
-    void detecta_los_tres_tipos_de_descuadre() {
+    void detects_the_three_kinds_of_discrepancy() {
         List<SettlementRecord> feed = List.of(
                 new SettlementRecord("ref-1", 1000, T),   // balances
                 new SettlementRecord("ref-2", 2000, T),   // mismatch: the ledger has 1961 (39 of fee)
@@ -62,7 +62,7 @@ class ReconciliationMatcherTest {
     }
 
     @Test
-    void refs_duplicadas_en_el_feed_se_agregan_y_no_cuadran_falsamente() {
+    void duplicate_refs_in_the_feed_are_aggregated_and_do_not_falsely_balance() {
         // The PSP settles the SAME order in two parts (split) that add up to MORE than the posting.
         List<SettlementRecord> feed = List.of(
                 new SettlementRecord("ref-1", 600, T),

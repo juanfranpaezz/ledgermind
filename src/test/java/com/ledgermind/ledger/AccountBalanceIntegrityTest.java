@@ -68,7 +68,7 @@ class AccountBalanceIntegrityTest {
     // ---------- VERDE: ledger intacto ----------
 
     @Test
-    void ledger_intacto_los_contadores_cierran_contra_el_replay_del_journal() {
+    void intact_ledger_counters_balance_against_the_journal_replay() {
         seedDemoLedger();
 
         var result = balances.verify();
@@ -90,7 +90,7 @@ class AccountBalanceIntegrityTest {
     // ---------- RED: a posting edited by direct SQL ----------
 
     @Test
-    void un_asiento_editado_por_SQL_deja_el_contador_en_desacuerdo_con_el_journal() {
+    void a_posting_edited_by_SQL_leaves_the_counter_disagreeing_with_the_journal() {
         seedDemoLedger();
 
         // Attacker with database access: adds 1 cent to the last posting (ORD-1005, 8,000 -> 8,001).
@@ -135,7 +135,7 @@ class AccountBalanceIntegrityTest {
      * would say "no evidence of editing" with the counters already out of step.
      */
     @Test
-    void detecta_el_tamper_de_un_asiento_aun_NO_encadenado_que_la_hash_chain_no_ve() {
+    void detects_tamper_of_a_posting_NOT_yet_chained_that_the_hash_chain_cannot_see() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:beto", "ARS", false);
         ledger.transfer("external:funding", "wallet:beto", 100_000, "seed");

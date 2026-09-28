@@ -45,7 +45,7 @@ class McpOAuthAudienceTest {
     }
 
     @Test
-    void el_token_del_sas_lleva_aud_ledgermind_mcp() {
+    void the_sas_token_carries_aud_ledgermind_mcp() {
         HttpHeaders headers = new HttpHeaders();
         headers.setBasicAuth("mcp-client", "secret");
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);

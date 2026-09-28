@@ -32,7 +32,7 @@ class JournalSignerRegistryTest {
     }
 
     @Test
-    void despacha_y_verifica_una_firma_ML_DSA() {
+    void dispatches_and_verifies_an_ML_DSA_signature() {
         byte[] data = msg("ledgermind:journal-checkpoint:v1:7:deadbeef");
         String sig = mldsa.sign(data);
 
@@ -41,7 +41,7 @@ class JournalSignerRegistryTest {
     }
 
     @Test
-    void despacha_y_verifica_una_firma_Ed25519() {
+    void dispatches_and_verifies_an_Ed25519_signature() {
         byte[] data = msg("ledgermind:journal-checkpoint:v1:7:deadbeef");
         String sig = ed.sign(data);
 
@@ -49,7 +49,7 @@ class JournalSignerRegistryTest {
     }
 
     @Test
-    void no_cruza_esquemas_una_firma_Ed25519_NO_verifica_como_ML_DSA() {
+    void does_not_cross_schemes_an_Ed25519_signature_does_NOT_verify_as_ML_DSA() {
         // An Ed25519 signature presented as ML-DSA: the Ed25519 public key is not an X.509 that the
         // ML-DSA KeyFactory can parse -> STRUCTURAL failure (not evidence of tamper) -> loud.
         byte[] data = msg("head:abc123");
@@ -78,7 +78,7 @@ class JournalSignerRegistryTest {
     }
 
     @Test
-    void rechaza_un_algoritmo_desconocido_como_falla_estructural_NO_como_tamper() {
+    void rejects_an_unknown_algorithm_as_a_structural_failure_NOT_as_tamper() {
         byte[] data = msg("head:abc123");
         String sig = mldsa.sign(data);
 
@@ -90,7 +90,7 @@ class JournalSignerRegistryTest {
     }
 
     @Test
-    void el_firmante_activo_se_resuelve_por_nombre() {
+    void the_active_signer_is_resolved_by_name() {
         assertThat(registry.activeSigner("ML-DSA-65")).isSameAs(mldsa);
         assertThat(registry.activeSigner("Ed25519")).isSameAs(ed);
         assertThatThrownBy(() -> registry.activeSigner("RSA"))
@@ -98,7 +98,7 @@ class JournalSignerRegistryTest {
     }
 
     @Test
-    void dos_firmantes_con_el_mismo_algoritmo_es_un_error_de_configuracion() {
+    void two_signers_with_the_same_algorithm_is_a_configuration_error() {
         // Defence: if two beans declared the same algorithm(), one is not picked silently -> it fails.
         assertThatThrownBy(() -> new JournalSignerRegistry(List.of(mldsa, new MlDsaJournalSigner())))
                 .isInstanceOf(IllegalStateException.class)

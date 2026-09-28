@@ -50,7 +50,7 @@ class LedgerConcurrencySpikeTest {
     private PostingRepository postings;
 
     @Test
-    void dinero_se_conserva_bajo_50_transferencias_concurrentes() throws Exception {
+    void money_is_conserved_under_50_concurrent_transfers() throws Exception {
         // --- ARRANGE: an external source (can go negative), two wallets, and we fund A with FUNDED ---
         Account external = accounts.save(new Account("external:funding", "ARS", true));
         Account walletA = accounts.save(new Account("wallet:a", "ARS", false));

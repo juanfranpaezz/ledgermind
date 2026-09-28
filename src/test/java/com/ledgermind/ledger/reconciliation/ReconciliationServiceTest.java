@@ -43,7 +43,7 @@ class ReconciliationServiceTest {
     }
 
     @Test
-    void el_feed_demo_expone_los_tres_descuadres() {
+    void the_demo_feed_exposes_the_three_discrepancies() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.transfer("external:funding", "wallet:a", 100_000, "ORD-1");
@@ -63,7 +63,7 @@ class ReconciliationServiceTest {
     }
 
     @Test
-    void un_feed_que_coincide_con_el_ledger_cuadra() {
+    void a_feed_that_matches_the_ledger_balances() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:b", "ARS", false);
         Posting p = ledger.transfer("external:funding", "wallet:b", 70_000, "ORD-X");

@@ -31,7 +31,7 @@ class JournalChainerTest {
     private JdbcTemplate jdbc;
 
     @Test
-    void encadena_los_asientos_y_detecta_un_asiento_alterado() {
+    void chains_postings_and_detects_an_altered_posting() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.createAccount("wallet:b", "ARS", false);

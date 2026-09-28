@@ -32,12 +32,12 @@ class LiveBurstProductionDefaultsTest {
     private JdbcTemplate jdbc;
 
     @Test
-    void rafaga_limpia_con_valores_de_produccion_no_dice_por_fuera_ni_manipulacion() throws Exception {
+    void clean_burst_with_production_values_reports_no_outside_insertion_nor_tamper() throws Exception {
         BurstResult r = LiveBurstFloorGraceTest.runBurst(ledger, checkpoints, jdbc, 8_000, 5_000);
         System.out.println("[BURST][prod-defaults] " + r);
         assertThat(r.transfersOk()).isGreaterThan(50);
         assertThat(r.audits()).isGreaterThan(20);
-        assertThat(r.porFuera()).isZero();
+        assertThat(r.outsideAppFlags()).isZero();
         assertThat(r.manipulacion()).isZero();
         assertThat(r.tamper()).isZero();
         assertThat(r.activeFlags()).isZero();

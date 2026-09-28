@@ -28,7 +28,7 @@ class IdempotencyMismatchTest {
     private LedgerService ledger;
 
     @Test
-    void misma_clave_con_parametros_distintos_es_conflicto_y_no_aplica_nada() {
+    void same_key_with_different_parameters_is_a_conflict_and_applies_nothing() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:x", "ARS", false);
         Posting original = ledger.transfer("external:funding", "wallet:x", 100, "k1");

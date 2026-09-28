@@ -33,7 +33,7 @@ class TransferLatencyProbeTest {
     private JdbcTemplate jdbc;
 
     @Test
-    void latencia_de_transferencia_p50_p95() {
+    void transfer_latency_p50_p95() {
         jdbc.execute("TRUNCATE journal_checkpoint, posting_hash, posting, account RESTART IDENTITY CASCADE");
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);

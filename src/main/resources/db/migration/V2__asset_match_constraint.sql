@@ -1,16 +1,16 @@
 -- =====================================================================================
--- V2 — The asset of a posting must match that of BOTH accounts (an invariant in the DB).
--- Until now this rule only lived in TransferService.apply(); we move it down into the database,
--- consistent with the "invariants in the DB" doctrine (second line of defence).
+-- V2 — El asset de un asiento debe coincidir con el de AMBAS cuentas (invariante en la DB).
+-- Hasta ahora esta regla solo vivia en TransferService.apply(); la subimos a la base,
+-- coherente con la doctrina "invariantes en la DB" (segunda linea de defensa).
 -- =====================================================================================
 
--- Needed to be able to reference (id, asset) from a composite FK.
+-- Necesario para poder referenciar (id, asset) desde una FK compuesta.
 ALTER TABLE account ADD CONSTRAINT account_id_asset_unique UNIQUE (id, asset);
 
--- Composite FKs: they force posting.asset = the asset of the debited account AND of the credited one.
--- Since both reference the SAME posting.asset, the two accounts end up sharing the asset
--- => structurally impossible to transfer between different currencies.
--- (They subsume V1's simple FKs on debit_account_id / credit_account_id.)
+-- FKs compuestas: fuerzan que posting.asset = asset de la cuenta debitada Y de la acreditada.
+-- Como ambas referencian el MISMO posting.asset, las dos cuentas terminan compartiendo asset
+-- => estructuralmente imposible transferir entre monedas distintas.
+-- (Subsumen las FKs simples de V1 sobre debit_account_id / credit_account_id.)
 ALTER TABLE posting
     ADD CONSTRAINT posting_debit_account_asset_fk
         FOREIGN KEY (debit_account_id, asset) REFERENCES account (id, asset),

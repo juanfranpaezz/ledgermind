@@ -45,7 +45,7 @@ class LedgerApiIntegrationTest {
 
     @Test
     @SuppressWarnings({"unchecked", "rawtypes"})
-    void crear_transferir_idempotencia_sobregiro_y_errores() {
+    void create_transfer_idempotency_overdraft_and_errors() {
         // --- create accounts ---
         ResponseEntity<Map> ext = rest.postForEntity("/api/accounts",
                 Map.<String, Object>of("address", "external:funding", "asset", "ARS", "allowNegative", true), Map.class);

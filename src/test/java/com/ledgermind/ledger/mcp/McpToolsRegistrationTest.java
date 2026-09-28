@@ -17,7 +17,7 @@ import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 class McpToolsRegistrationTest {
 
     @Test
-    void expone_las_tres_tools_de_solo_lectura() {
+    void exposes_the_read_only_tools() {
         LedgerMcpTools tools = new LedgerMcpTools(
                 (LedgerService) null, (JournalCheckpointService) null, (ReconciliationService) null);
         MethodToolCallbackProvider provider = MethodToolCallbackProvider.builder()

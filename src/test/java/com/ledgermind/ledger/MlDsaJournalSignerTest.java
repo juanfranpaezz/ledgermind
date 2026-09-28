@@ -14,7 +14,7 @@ class MlDsaJournalSignerTest {
     private final MlDsaJournalSigner signer = new MlDsaJournalSigner();
 
     @Test
-    void firma_y_verifica_un_roundtrip() {
+    void signs_and_verifies_a_roundtrip() {
         byte[] data = "ledgermind:journal-checkpoint:v1:3:abc123".getBytes(StandardCharsets.UTF_8);
         String sig = signer.sign(data);
 
@@ -32,7 +32,7 @@ class MlDsaJournalSignerTest {
     }
 
     @Test
-    void rechaza_una_clave_publica_ajena() {
+    void rejects_a_foreign_public_key() {
         byte[] data = "head:abc123".getBytes(StandardCharsets.UTF_8);
         String sig = signer.sign(data);
         MlDsaJournalSigner other = new MlDsaJournalSigner();

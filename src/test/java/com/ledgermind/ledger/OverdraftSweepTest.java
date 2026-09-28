@@ -91,7 +91,7 @@ class OverdraftSweepTest {
     }
 
     @Test
-    void sobregiro_plantado_se_marca_y_la_siguiente_transferencia_se_rechaza_con_error_especifico() throws Exception {
+    void planted_overdraft_is_flagged_and_the_next_transfer_is_rejected_with_a_specific_error() throws Exception {
         seed();
         log("seed", sweeper.sweep());
         plantOverdraft();
@@ -128,7 +128,7 @@ class OverdraftSweepTest {
     }
 
     @Test
-    void trafico_limpio_con_rafaga_no_marca_ninguna_cuenta() {
+    void clean_burst_traffic_flags_no_account() {
         ledger.createAccount("external:funding", "ARS", true);
         int wallets = 10;
         for (int i = 0; i < wallets; i++) {
@@ -161,7 +161,7 @@ class OverdraftSweepTest {
     }
 
     @Test
-    void descongelar_exige_scope_admin_registra_quien_y_por_que_y_restaura_transferencias() {
+    void unfreezing_requires_admin_scope_records_who_and_why_and_restores_transfers() {
         seed();
         sweeper.sweep();
         plantOverdraft();
@@ -195,7 +195,7 @@ class OverdraftSweepTest {
      * ALL its postings (not only the ones above the watermark).
      */
     @Test
-    void edicion_de_un_asiento_ya_barrido_se_marca_cuando_la_cuenta_vuelve_a_moverse() {
+    void edit_of_an_already_swept_posting_is_flagged_when_the_account_moves_again() {
         seed();
         ledger.transfer("wallet:a", "wallet:b", 10, "small");              // posting 3: a -> b 10
         log("a2-first", sweeper.sweep());                                     // the watermark passes posting 3
@@ -218,7 +218,7 @@ class OverdraftSweepTest {
      * full replay of the touched account (a2) includes it.
      */
     @Test
-    void insercion_con_id_bajo_la_marca_de_agua_en_cuenta_quieta_no_la_ve_el_barrido_documentado() {
+    void insertion_with_id_below_the_watermark_on_a_quiet_account_is_not_seen_by_the_sweep_documented() {
         seed();
         log("a3-first", sweeper.sweep());
         jdbc.update("INSERT INTO posting (id, debit_account_id, credit_account_id, amount, asset, idempotency_key)"
@@ -234,7 +234,7 @@ class OverdraftSweepTest {
     }
 
     @Test
-    void segunda_pasada_sin_asientos_nuevos_no_toca_ninguna_cuenta() {
+    void second_pass_without_new_postings_touches_no_account() {
         seed();
         SweepResult first = sweeper.sweep();
         log("first", first);
@@ -255,7 +255,7 @@ class OverdraftSweepTest {
     }
 
     @Test
-    void chequeo_de_congelamiento_en_el_camino_caliente_cuesta_menos_de_5ms_p50() {
+    void freeze_check_on_the_hot_path_costs_less_than_5ms_p50() {
         seed();
         sweeper.sweep();
         int n = 300;

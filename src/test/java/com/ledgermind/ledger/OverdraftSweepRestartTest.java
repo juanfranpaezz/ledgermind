@@ -38,7 +38,7 @@ class OverdraftSweepRestartTest {
     }
 
     @Test
-    void la_marca_de_agua_persiste_a_traves_de_un_reinicio_del_contexto() {
+    void the_watermark_survives_a_context_restart() {
         long watermarkBeforeRestart;
         try (ConfigurableApplicationContext first = start()) {
             LedgerService ledger = first.getBean(LedgerService.class);

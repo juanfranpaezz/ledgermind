@@ -52,7 +52,7 @@ class LiveBurstFloorGraceTest {
     private JdbcTemplate jdbc;
 
     /** What the audit saw during the burst. */
-    record BurstResult(long transfersOk, long transfersFailed, long audits, long porFuera, long manipulacion,
+    record BurstResult(long transfersOk, long transfersFailed, long audits, long outsideAppFlags, long manipulacion,
                        long tamper, long degradedAtrasado, long degradedDetenido, long staleSeen, long activeFlags,
                        Map<String, Integer> histogram) {
     }
@@ -91,7 +91,7 @@ class LiveBurstFloorGraceTest {
         }
         Map<String, Integer> hist = new ConcurrentHashMap<>();
         AtomicLong audits = new AtomicLong();
-        AtomicLong porFuera = new AtomicLong();
+        AtomicLong outsideAppFlags = new AtomicLong();
         AtomicLong manip = new AtomicLong();
         AtomicLong tamper = new AtomicLong();
         AtomicLong atrasado = new AtomicLong();
@@ -103,7 +103,7 @@ class LiveBurstFloorGraceTest {
                 audits.incrementAndGet();
                 String v = r.verdict();
                 if (v.contains("outside the app")) {
-                    porFuera.incrementAndGet();
+                    outsideAppFlags.incrementAndGet();
                 }
                 if (v.contains("TAMPER DETECTED")) {
                     manip.incrementAndGet();
@@ -133,17 +133,17 @@ class LiveBurstFloorGraceTest {
         pool.shutdown();
         pool.awaitTermination(30, TimeUnit.SECONDS);
         long flags = jdbc.queryForObject("SELECT count(*) FROM overdraft_flag WHERE cleared_at IS NULL", Long.class);
-        return new BurstResult(ok.get(), failed.get(), audits.get(), porFuera.get(), manip.get(), tamper.get(),
+        return new BurstResult(ok.get(), failed.get(), audits.get(), outsideAppFlags.get(), manip.get(), tamper.get(),
                 atrasado.get(), detenido.get(), stale.get(), flags, new TreeMap<>(hist));
     }
 
     @Test
-    void rafaga_limpia_con_la_ventana_en_su_piso_no_dice_por_fuera_ni_manipulacion() throws Exception {
+    void clean_burst_with_the_window_at_its_floor_reports_no_outside_insertion_nor_tamper() throws Exception {
         BurstResult r = runBurst(ledger, checkpoints, jdbc, 8_000, 5_000);
         System.out.println("[BURST][floor-900ms] " + r);
         assertThat(r.transfersOk()).isGreaterThan(50);
         assertThat(r.audits()).isGreaterThan(20);
-        assertThat(r.porFuera()).isZero();
+        assertThat(r.outsideAppFlags()).isZero();
         assertThat(r.manipulacion()).isZero();
         assertThat(r.tamper()).isZero();
         assertThat(r.activeFlags()).isZero();

@@ -46,7 +46,7 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
-    void firma_la_cabeza_y_detecta_un_tamper_posterior() {
+    void signs_the_head_and_detects_a_later_tamper() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.createAccount("wallet:b", "ARS", false);
@@ -83,7 +83,7 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
-    void reescribir_SOLO_la_columna_algorithm_invalida_la_firma() {
+    void rewriting_ONLY_the_algorithm_column_invalidates_the_signature() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
@@ -106,7 +106,7 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
-    void un_checkpoint_atrasado_NO_es_un_tamper() {
+    void a_lagging_checkpoint_is_NOT_a_tamper() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
@@ -126,7 +126,7 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
-    void audit_reporta_integro_y_luego_detecta_el_tamper() {
+    void audit_reports_intact_and_then_detects_the_tamper() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
@@ -154,7 +154,7 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
-    void detecta_reescritura_de_la_tabla_de_hashes() {
+    void detects_a_rewrite_of_the_hash_table() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
@@ -170,7 +170,7 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
-    void una_firma_estructuralmente_corrupta_falla_ruidoso_y_NO_como_tamper() {
+    void a_structurally_corrupt_signature_fails_loudly_and_NOT_as_tamper() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
@@ -232,7 +232,7 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
-    void crea_un_nuevo_checkpoint_cuando_la_cabeza_avanza() {
+    void creates_a_new_checkpoint_when_the_head_advances() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:c", "ARS", false);
         ledger.transfer("external:funding", "wallet:c", 50_000, "seed-2");

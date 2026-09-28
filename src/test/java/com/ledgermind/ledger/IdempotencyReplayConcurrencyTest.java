@@ -45,7 +45,7 @@ class IdempotencyReplayConcurrencyTest {
     private PostingRepository postings;
 
     @Test
-    void misma_clave_concurrente_se_aplica_una_sola_vez_y_todos_reciben_el_mismo_asiento() throws Exception {
+    void concurrent_same_key_applies_once_and_all_receive_the_same_posting() throws Exception {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:dest", "ARS", false);
 

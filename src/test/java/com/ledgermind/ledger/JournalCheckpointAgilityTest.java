@@ -47,7 +47,7 @@ class JournalCheckpointAgilityTest {
     }
 
     @Test
-    void firma_con_Ed25519_y_la_verificacion_despacha_a_Ed25519() {
+    void signs_with_Ed25519_and_verification_dispatches_to_Ed25519() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.createAccount("wallet:b", "ARS", false);
@@ -81,7 +81,7 @@ class JournalCheckpointAgilityTest {
     }
 
     @Test
-    void un_checkpoint_de_un_algoritmo_DESCONOCIDO_falla_ruidoso_y_NO_como_tamper() {
+    void a_checkpoint_with_an_UNKNOWN_algorithm_fails_loudly_and_NOT_as_tamper() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
