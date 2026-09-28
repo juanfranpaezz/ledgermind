@@ -1,6 +1,8 @@
 package com.ledgermind.ledger.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import jakarta.servlet.FilterChain;
 import java.util.concurrent.atomic.AtomicLong;
@@ -12,7 +14,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
  * {@link RateLimitFilter} as a unit, with an injected clock: the window semantics the README and ADR 0004 state
- * (fixed window; up to twice the limit across a boundary; nested {@code /api/journal/**} paths counted). No Spring
+ * (fixed window; up to twice the limit across a boundary; nested {@code /api/journal/**} paths counted) and the
+ * configuration it must honour (constructor guard, non-default window-ms and max-per-window; correctness gate r3:
+ * each of those three guards survived mutation with the previous suite). No Spring
  * context and no sleeping: every request is placed at an exact millisecond. Callers here are anonymous (empty
  * security context), so they all share the anonymous window.
  */
@@ -62,6 +66,32 @@ class RateLimitFilterClockTest {
         assertThat(served(filter, "/api/journal/audit", 30)).as("a fresh window 2 ms later").isEqualTo(30);
         assertThat(status(filter, "/api/demo/audit")).as("31st in the new window").isEqualTo(429);
         // 29 + 30 = 59 served between t=9.999 s and t=10.001 s: the fixed window allows ~2x the limit in a short span.
+    }
+
+    @Test
+    void constructor_rejects_a_zero_limit_or_window_and_accepts_the_minimum() {
+        assertThatThrownBy(() -> new RateLimitFilter(0, 10_000)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new RateLimitFilter(30, 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatCode(() -> new RateLimitFilter(1, 1)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void a_non_default_window_ms_is_honoured() throws Exception {
+        RateLimitFilter filter = new RateLimitFilter(1, 300, now::get);
+        now.set(0);
+        assertThat(status(filter, "/api/demo/audit")).isEqualTo(200);
+        assertThat(status(filter, "/api/demo/audit")).as("second call in the 300 ms window").isEqualTo(429);
+        now.set(301);
+        assertThat(status(filter, "/api/demo/audit")).as("after window-ms=300 has passed").isEqualTo(200);
+    }
+
+    @Test
+    void a_non_default_max_per_window_is_honoured() throws Exception {
+        RateLimitFilter filter = new RateLimitFilter(2, 10_000, now::get);
+        assertThat(served(filter, "/api/journal/audit", 5)).as("max-per-window=2").isEqualTo(2);
+
+        RateLimitFilter larger = new RateLimitFilter(45, 10_000, now::get);
+        assertThat(served(larger, "/api/journal/audit", 50)).as("max-per-window=45").isEqualTo(45);
     }
 
     @Test

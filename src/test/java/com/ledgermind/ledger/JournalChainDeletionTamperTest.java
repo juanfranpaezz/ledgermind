@@ -93,6 +93,37 @@ class JournalChainDeletionTamperTest {
         assertThat(tampered.verdict()).contains("MANIPULACION DETECTADA");
     }
 
+    /**
+     * The stored prev_hash is compared too, not only recomputed: an edit of ONLY posting_hash.prev_hash of a covered
+     * middle link is tamper at that link (correctness gate r3: removing that comparison kept every other test green).
+     */
+    @Test
+    void editing_only_the_stored_prev_hash_of_a_covered_middle_link_is_tamper() {
+        ledger.createAccount("external:funding", "ARS", true);
+        ledger.createAccount("wallet:a", "ARS", false);
+        ledger.createAccount("wallet:b", "ARS", false);
+        ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
+        Posting middle = ledger.transfer("wallet:a", "wallet:b", 30_000, "t-1");
+        ledger.transfer("wallet:a", "wallet:b", 20_000, "t-2");
+        chainer.chainPendingPostings();
+        assertThat(checkpoints.checkpointIfHeadAdvanced()).isPresent();
+        Long middleSeq = jdbc.queryForObject("SELECT seq FROM posting_hash WHERE posting_id = ?", Long.class,
+                middle.getId());
+
+        var clean = checkpoints.audit();
+        assertThat(clean.tamperDetected()).isFalse();
+        assertThat(clean.chainIntact()).isTrue();
+
+        // TAMPER: overwrite only the stored prev_hash of the middle link; posting, entry_hash and counters untouched
+        jdbc.update("UPDATE posting_hash SET prev_hash = ? WHERE posting_id = ?", "f".repeat(64), middle.getId());
+
+        var tampered = checkpoints.audit();
+        assertThat(tampered.balancesConsistent()).isTrue();
+        assertThat(tampered.chainIntact()).isFalse();
+        assertThat(tampered.brokenAtSeq()).isEqualTo(middleSeq);
+        assertThat(tampered.tamperDetected()).isTrue();
+    }
+
     @Test
     void editing_a_chained_posting_after_the_last_checkpoint_without_relinking_is_tamper() {
         ledger.createAccount("external:funding", "ARS", true);
