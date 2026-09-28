@@ -24,7 +24,7 @@ class Ed25519JournalSignerTest {
     }
 
     @Test
-    void rechaza_datos_alterados() {
+    void rejects_altered_data() {
         byte[] data = "head:abc123".getBytes(StandardCharsets.UTF_8);
         String sig = signer.sign(data);
         byte[] tampered = "head:abc124".getBytes(StandardCharsets.UTF_8);

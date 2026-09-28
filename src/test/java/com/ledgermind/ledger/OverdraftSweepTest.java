@@ -250,7 +250,7 @@ class OverdraftSweepTest {
         ledger.transfer("wallet:a", "wallet:b", 10, "one-more");
         SweepResult third = sweeper.sweep();
         log("third", third);
-        assertThat(third.touchedAccounts()).isEqualTo(2);   // solo a y b, no funding
+        assertThat(third.touchedAccounts()).isEqualTo(2);   // only a and b, not funding
         assertThat(third.scannedFromId()).isEqualTo(3L);
     }
 

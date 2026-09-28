@@ -19,7 +19,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * The global rate limit must count a request by the path the server actually routes, not by the raw request URI.
- * Measured bypass (gate, 2026-09-25): {@code /api/%6Aournal/audit} is decoded by the container to
+ * Measured bypass: {@code /api/%6Aournal/audit} is decoded by the container to
  * {@code /api/journal/audit} and served by the audit handler, but a filter matching the raw URI never counted it, so
  * 45 such requests got no 429. The request is sent with {@link HttpClient} and {@link URI#create}, which keep the
  * percent-encoding on the wire (a RestTemplate would re-encode the {@code %}).

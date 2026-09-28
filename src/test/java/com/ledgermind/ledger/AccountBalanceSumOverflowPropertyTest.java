@@ -18,7 +18,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * OVF-1 (plan v1): the balance replay sums the journal exactly, so no pair of out-of-band postings, however large,
+ * OVF-1: the balance replay sums the journal exactly, so no pair of out-of-band postings, however large,
  * makes the audit throw or lie. Seeded generator (the seed is printed; set {@code -Dovf1.seed=<n>} to replay a run):
  * 200 random pairs (a, b), each in [1, Long.MAX_VALUE], plus the fixed pairs (5e18, 5e18) and (Long.MAX_VALUE, 1),
  * inserted out-of-band from account 1 to account 2. For every other in-range pair the stored counters are set to the

@@ -38,7 +38,7 @@ class LiveBurstProductionDefaultsTest {
         assertThat(r.transfersOk()).isGreaterThan(50);
         assertThat(r.audits()).isGreaterThan(20);
         assertThat(r.outsideAppFlags()).isZero();
-        assertThat(r.manipulacion()).isZero();
+        assertThat(r.tamperHeadlines()).isZero();
         assertThat(r.tamper()).isZero();
         assertThat(r.activeFlags()).isZero();
     }

@@ -22,9 +22,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * OVF-2 (plan v1): over HTTP with a key, a journal whose sum is above the 64-bit range (two out-of-band postings of
+ * OVF-2: over HTTP with a key, a journal whose sum is above the 64-bit range (two out-of-band postings of
  * 5e18 on one account, counters untouched) is answered {@code 200} with {@code tamperDetected=true}, never {@code 409}
- * (gate finding 2026-09-25: the sum read with {@code getLong} surfaced as a 409 on this route).
+ * (before the fix, the sum read with {@code getLong} surfaced as a 409 on this route).
  *
  * <p>Both outcomes: the overflowing journal reports tamper; the same route on an in-range journal whose counters match
  * reports {@code balancesConsistent=true}.

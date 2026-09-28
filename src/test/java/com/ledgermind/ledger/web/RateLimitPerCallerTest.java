@@ -27,7 +27,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * The rate limit is counted per caller, not globally (security gate F2, 2026-09-26: with one global counter, key A
+ * The rate limit is counted per caller, not globally (with one global counter, key A
  * used up the window and key B's audit got 429; 30 anonymous demo audits put every keyed audit in 429).
  *
  * <p>Runs under the {@code demo} profile so the anonymous bucket exists, with its own keys file holding two keys

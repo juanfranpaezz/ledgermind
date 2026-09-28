@@ -19,7 +19,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 /**
  * A journal sum above {@code Long.MAX_VALUE} must come out as a balance mismatch (tamper), not as an exception.
  * The stored counters are BIGINT, so no legitimate write can reach such a sum; two out-of-band postings of 5e18 on
- * the same account do. Gate finding 2026-09-25: reading the SQL {@code sum()} (numeric) with {@code getLong} threw
+ * the same account do. Before the fix, reading the SQL {@code sum()} (numeric) with {@code getLong} threw
  * "Bad value for type long", surfaced as a DataIntegrityViolationException and an HTTP 409 on the audit.
  *
  * <p>Both outcomes: 2 x 5e18 with the counters untouched fires (mismatch, tamper); 2 x 4e18 with the counters bumped

@@ -118,7 +118,7 @@ class OverdraftSweepOverflowTest {
     }
 
     /**
-     * Gate fix (amend round 1): with only {@code sweep-delay-ms} set high, the scheduled sweep still ran once at context
+     * Regression: with only {@code sweep-delay-ms} set high, the scheduled sweep still ran once at context
      * start and raced this class's manual {@code sweep()} on the {@code FOR UPDATE} row (a serialization error, seen in
      * a clean-clone verify). The registered task must carry the configured initial delay, so no startup pass exists
      * inside this test's window.

@@ -72,7 +72,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     /**
      * The path the container routes: decoded and normalized ({@code %6A} -> {@code j}, dot segments and path
      * parameters removed). Matching the raw {@link HttpServletRequest#getRequestURI()} let
-     * {@code /api/%6Aournal/audit} reach the audit handler without being counted (gate measurement, 2026-09-25).
+     * {@code /api/%6Aournal/audit} reach the audit handler without being counted.
      */
     static String routedPath(HttpServletRequest request) {
         String servletPath = request.getServletPath();

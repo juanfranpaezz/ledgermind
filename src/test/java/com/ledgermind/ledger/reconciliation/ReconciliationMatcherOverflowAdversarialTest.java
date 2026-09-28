@@ -9,8 +9,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Gate fix (amend round 1): pins the two reconciliation overflow guards the OVF-5 suite could not tell from a wrap
- * (verifier mutations M19 per-reference sum, M20 total difference), and pins that only a FINAL value outside 64 bits is
+ * Pins the two reconciliation overflow guards the OVF-5 suite could not tell from a wrap
+ * (the per-reference sum and the total difference), and pins that only a FINAL value outside 64 bits is
  * rejected: the result never depends on the order of the rows. Negative feed amounts reach the matcher over HTTP
  * (the controller validates only null or blank references).
  */

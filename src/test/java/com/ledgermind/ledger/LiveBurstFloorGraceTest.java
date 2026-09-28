@@ -52,8 +52,8 @@ class LiveBurstFloorGraceTest {
     private JdbcTemplate jdbc;
 
     /** What the audit saw during the burst. */
-    record BurstResult(long transfersOk, long transfersFailed, long audits, long outsideAppFlags, long manipulacion,
-                       long tamper, long degradedAtrasado, long degradedDetenido, long staleSeen, long activeFlags,
+    record BurstResult(long transfersOk, long transfersFailed, long audits, long outsideAppFlags, long tamperHeadlines,
+                       long tamper, long degradedBehind, long degradedStopped, long staleSeen, long activeFlags,
                        Map<String, Integer> histogram) {
     }
 
@@ -94,8 +94,8 @@ class LiveBurstFloorGraceTest {
         AtomicLong outsideAppFlags = new AtomicLong();
         AtomicLong manip = new AtomicLong();
         AtomicLong tamper = new AtomicLong();
-        AtomicLong atrasado = new AtomicLong();
-        AtomicLong detenido = new AtomicLong();
+        AtomicLong behind = new AtomicLong();
+        AtomicLong stopped = new AtomicLong();
         AtomicLong stale = new AtomicLong();
         Future<?> poller = pool.submit(() -> {
             while (!stopPoll.get()) {
@@ -112,10 +112,10 @@ class LiveBurstFloorGraceTest {
                     tamper.incrementAndGet();
                 }
                 if (r.coverageDegraded() && r.coverageReason() == CoverageReason.ATRASADO) {
-                    atrasado.incrementAndGet();
+                    behind.incrementAndGet();
                 }
                 if (r.coverageDegraded() && r.coverageReason() == CoverageReason.DETENIDO) {
-                    detenido.incrementAndGet();
+                    stopped.incrementAndGet();
                 }
                 if (r.staleUnchainedPostings() > 0) {
                     stale.incrementAndGet();
@@ -134,7 +134,7 @@ class LiveBurstFloorGraceTest {
         pool.awaitTermination(30, TimeUnit.SECONDS);
         long flags = jdbc.queryForObject("SELECT count(*) FROM overdraft_flag WHERE cleared_at IS NULL", Long.class);
         return new BurstResult(ok.get(), failed.get(), audits.get(), outsideAppFlags.get(), manip.get(), tamper.get(),
-                atrasado.get(), detenido.get(), stale.get(), flags, new TreeMap<>(hist));
+                behind.get(), stopped.get(), stale.get(), flags, new TreeMap<>(hist));
     }
 
     @Test
@@ -144,7 +144,7 @@ class LiveBurstFloorGraceTest {
         assertThat(r.transfersOk()).isGreaterThan(50);
         assertThat(r.audits()).isGreaterThan(20);
         assertThat(r.outsideAppFlags()).isZero();
-        assertThat(r.manipulacion()).isZero();
+        assertThat(r.tamperHeadlines()).isZero();
         assertThat(r.tamper()).isZero();
         assertThat(r.activeFlags()).isZero();
     }

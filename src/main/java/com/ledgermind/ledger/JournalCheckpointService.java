@@ -357,7 +357,7 @@ public class JournalCheckpointService {
             return SubjectPublicKeyInfo.getInstance(der).getAlgorithm().getAlgorithm();
         } catch (IllegalArgumentException structural) {
             throw new IllegalStateException("The checkpoint's public key is not a valid X.509 SubjectPublicKeyInfo"
-                    + " (causa estructural, no evidencia de tamper)", structural);
+                    + " (structural cause, not tamper evidence)", structural);
         }
     }
 
