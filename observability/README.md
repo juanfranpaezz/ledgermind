@@ -1,60 +1,60 @@
-# Observabilidad — Micrometer · Prometheus · Grafana
+# Observability — Micrometer · Prometheus · Grafana
 
-Stack de observabilidad de LedgerMind. **La app instrumenta** con Micrometer, **Prometheus** scrapea y guarda
-las series, **Grafana** las grafica. Pensado para correr **always-on en el VPS** (o local para el screenshot del CV).
+LedgerMind's observability stack. **The app instruments** with Micrometer, **Prometheus** scrapes and stores
+the series, **Grafana** plots them. Meant to run **always-on on a VPS** (or locally to take the dashboard screenshot).
 
-## Cómo correr (todo junto)
+## How to run it (all together)
 
 ```bash
 docker compose -f docker-compose.observability.yml up --build -d
 ```
 
-- **Grafana** → `http://<host>:3000` — dashboard **"LedgerMind — Observabilidad"** ya provisionado (anónimo read-only).
+- **Grafana** → `http://<host>:3000` — dashboard **"LedgerMind — Observability"** already provisioned (anonymous read-only).
 - **Prometheus** → `http://<host>:9090`
-- **App / demo** → `http://<host>:8080` — tocá los botones del demo para generar tráfico y ver moverse los paneles.
-- **Claves de la API** → la app exige `LEDGERMIND_API_KEYS_FILE` y no arranca sin él. El compose monta por defecto
-  `observability/demo-api-keys.empty` (vacío: solo andan los cinco `/api/demo/*` anónimos). Para usar el resto del
-  `/api` con `X-API-Key`, apuntá `LEDGERMIND_API_KEYS_HOST_FILE` a tu archivo de claves antes del `up`.
+- **App / demo** → `http://<host>:8080` — click the demo buttons to generate traffic and watch the panels move.
+- **API keys** → the app requires `LEDGERMIND_API_KEYS_FILE` and does not start without it. By default the compose file mounts
+  `observability/demo-api-keys.empty` (empty: only the five anonymous `/api/demo/*` endpoints work). To use the rest of
+  `/api` with `X-API-Key`, point `LEDGERMIND_API_KEYS_HOST_FILE` at your key file before `up`.
 
-## La cadena (cómo funciona)
+## The pipeline (how it works)
 
-1. **Micrometer** (librería en la app): registra métricas de forma neutral. Spring Boot Actuator ya instrumenta solo
-   `http.server.requests` (latencia/throughput), JVM (heap, GC), pool de la DB, etc.
-2. La app expone `GET /actuator/prometheus` (texto en formato Prometheus). Lo habilita
+1. **Micrometer** (library in the app): records metrics in a vendor-neutral way. Spring Boot Actuator already instruments
+   `http.server.requests` (latency/throughput), the JVM (heap, GC), the DB pool, etc. on its own.
+2. The app exposes `GET /actuator/prometheus` (text in Prometheus format). It is enabled by
    `management.endpoints.web.exposure.include: health,prometheus`.
-3. **Prometheus** le pega a `app:8080/actuator/prometheus` cada 5s (ver `prometheus.yml`) y guarda las series.
-4. **Grafana** consulta a Prometheus y dibuja los paneles (datasource + dashboard provisionados, ver `grafana/`).
+3. **Prometheus** scrapes `app:8080/actuator/prometheus` every 5s (see `prometheus.yml`) and stores the series.
+4. **Grafana** queries Prometheus and draws the panels (datasource + dashboard provisioned, see `grafana/`).
 
-## Paneles
+## Panels
 
-| Panel | Métrica / query | Qué muestra |
+| Panel | Metric / query | What it shows |
 |---|---|---|
-| **Reintentos por concurrencia** | `ledgermind_transfer_retries` | **Métrica custom.** Sube cuando dos transferencias chocan sobre la misma cuenta (optimistic lock perdido) o se deadlockean (40P01). Es la **presión de concurrencia** del ledger — el mismo contador que el spike de concurrencia afirma `> 0`. |
-| **Errores 5xx** | `rate(http_server_requests_seconds_count{outcome="SERVER_ERROR"}[1m])` | Tasa de errores de servidor. |
-| **Throughput** | `rate(http_server_requests_seconds_count[1m]) by (uri)` | Requests por segundo, por endpoint. |
-| **Latencia p95 / p99** | `histogram_quantile(0.95/0.99, ...)` | Percentiles de latencia HTTP (requiere los buckets, habilitados con `percentiles-histogram`). |
-| **JVM heap** | `jvm_memory_used_bytes{area="heap"}` | Memoria heap usada. |
+| **Concurrency retries** | `ledgermind_transfer_retries` | **Custom metric.** Rises when two transfers collide on the same account (lost optimistic lock) or deadlock (40P01). It is the ledger's **concurrency pressure** — the same counter the concurrency spike asserts is `> 0`. |
+| **5xx errors** | `rate(http_server_requests_seconds_count{outcome="SERVER_ERROR"}[1m])` | Server error rate. |
+| **Throughput** | `rate(http_server_requests_seconds_count[1m]) by (uri)` | Requests per second, per endpoint. |
+| **Latency p95 / p99** | `histogram_quantile(0.95/0.99, ...)` | HTTP latency percentiles (needs the buckets, enabled with `percentiles-histogram`). |
+| **JVM heap** | `jvm_memory_used_bytes{area="heap"}` | Heap memory used. |
 
-## La métrica custom (lo que más vale defender)
+## The custom metric
 
-`ledgermind_transfer_retries` se registra en `TransferService` con Micrometer, atada al mismo `AtomicLong retries`
-que incrementa el `catch (ConcurrencyFailureException)`. **No es un hook de test acoplado**: es telemetría operativa
-real de la presión de concurrencia, y de paso es el observable que el `LedgerConcurrencySpikeTest` usa para afirmar
-que la contención se ejercitó. Conecta la pieza estrella (concurrencia) con la observabilidad.
+`ledgermind_transfer_retries` is registered in `TransferService` with Micrometer, bound to the same `AtomicLong retries`
+that the `catch (ConcurrencyFailureException)` increments. **It is not a coupled test hook**: it is real operational
+telemetry of concurrency pressure, and it is also the observable that `LedgerConcurrencySpikeTest` uses to assert
+that contention was exercised. It connects the core piece (concurrency) with observability.
 
-## Honestidad (anti-overclaim)
+## Honest limits
 
-- Es **observabilidad de demo**: métricas in-process, sin alerting/Alertmanager, sin retención de largo plazo,
-  sin auth en Grafana (anónimo read-only a propósito, para mostrarlo). En prod: Grafana con auth, Prometheus con
-  retención/remote-write, reglas de alerta, y el `/actuator/prometheus` en un **management port aparte** o detrás de auth.
-- Las imágenes usan `:latest` por simplicidad del demo; en prod se pinnean versiones.
+- It is **demo observability**: in-process metrics, no alerting/Alertmanager, no long-term retention,
+  no auth on Grafana (anonymous read-only on purpose, to show it). In prod: Grafana with auth, Prometheus with
+  retention/remote-write, alert rules, and `/actuator/prometheus` on a **separate management port** or behind auth.
+- The images use `:latest` for the demo's simplicity; in prod versions are pinned.
 - `/actuator/prometheus` is scraped by Prometheus over the compose **internal network**, but the app serves it on its
   own HTTP port (8080) with **no authentication** (under the demo profile, which this stack and the Render deploy run, the
   default security chain leaves the actuator open; outside demo it needs an `X-API-Key`): anyone who can
   reach that port, including on a public deploy of the app, can read the metrics.
 
-## Defensa de entrevista (3 niveles)
+## In three levels of detail
 
-- **N1:** "Instrumenté la app con Micrometer; Prometheus junta las métricas y Grafana las grafica — latencia, throughput, errores, y un panel de presión de concurrencia."
-- **N2:** "Actuator expone `/actuator/prometheus`; Prometheus scrapea cada 5s; Grafana tiene datasource y dashboard provisionados por archivo (reproducible, versionado en el repo, cero click manual)."
-- **N3:** "La métrica que agregué a mano es `ledgermind_transfer_retries`: un gauge atado al contador de reintentos por conflicto transitorio. Es la misma señal que mi test de concurrencia asercióna — la subo a un dashboard porque *la presión de contención es justamente lo que querés vigilar en el path de saldo*. Para prod: alerting, auth en Grafana, management port separado y retención."
+- **L1:** The app is instrumented with Micrometer; Prometheus collects the metrics and Grafana plots them — latency, throughput, errors, and a concurrency-pressure panel.
+- **L2:** Actuator exposes `/actuator/prometheus`; Prometheus scrapes every 5s; Grafana has its datasource and dashboard provisioned from files (reproducible, versioned in the repo, zero manual clicks).
+- **L3:** The hand-added metric is `ledgermind_transfer_retries`: a gauge bound to the counter of retries on transient conflicts. It is the same signal the concurrency test asserts on — it goes on a dashboard because *contention pressure is exactly what you want to watch on the balance path*. For prod: alerting, auth on Grafana, a separate management port and retention.

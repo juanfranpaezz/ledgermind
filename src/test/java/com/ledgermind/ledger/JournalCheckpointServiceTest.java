@@ -14,10 +14,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Checkpoint firmado (Signed Tree Head): firma la cabeza de la hash-chain con ML-DSA y prueba que,
- * tras un tamper, la firma sigue siendo valida pero la cadena ya NO recomputa -> prueba criptografica
- * (post-cuantica) de que el journal fue alterado despues de firmar.
- * Se desactivan los jobs programados (delay enorme) para que el test sea determinista.
+ * Signed checkpoint (Signed Tree Head): it signs the head of the hash-chain with ML-DSA and proves that,
+ * after a tamper, the signature is still valid but the chain NO longer recomputes -> cryptographic
+ * (post-quantum) proof that the journal was altered after signing.
+ * The scheduled jobs are disabled (huge delay) so that the test is deterministic.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",
@@ -39,7 +39,7 @@ class JournalCheckpointServiceTest {
     @Autowired
     private JdbcTemplate jdbc;
 
-    /** Cada test arranca con un journal limpio (el contenedor Postgres se comparte entre tests). */
+    /** Every test starts with a clean journal (the Postgres container is shared between tests). */
     @BeforeEach
     void clean() {
         jdbc.execute("TRUNCATE journal_checkpoint, posting_hash, posting, account RESTART IDENTITY CASCADE");
@@ -53,14 +53,14 @@ class JournalCheckpointServiceTest {
         ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
         Posting t1 = ledger.transfer("wallet:a", "wallet:b", 30_000, "t-1");
 
-        // --- encadenar y firmar la cabeza ---
+        // --- chain and sign the head ---
         chainer.chainPendingPostings();
         assertThat(checkpoints.checkpointIfHeadAdvanced()).isPresent();
 
-        // --- idempotente: la cabeza no cambio -> no re-firma ---
+        // --- idempotent: the head did not change -> no re-signing ---
         assertThat(checkpoints.checkpointIfHeadAdvanced()).isEmpty();
 
-        // --- verificacion limpia: todos los planos en verde ---
+        // --- clean verification: every plane green ---
         var ok = checkpoints.verifyLatest();
         assertThat(ok.present()).isTrue();
         assertThat(ok.algorithm()).isEqualTo("ML-DSA-65");
@@ -69,15 +69,15 @@ class JournalCheckpointServiceTest {
         assertThat(ok.signedHeadStillInChain()).isTrue();
         assertThat(ok.isLatestHead()).isTrue();
 
-        // --- TAMPER directo en la DB sobre un asiento ya encadenado ---
+        // --- direct TAMPER in the DB on an already-chained posting ---
         jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", t1.getId());
 
         var afterTamper = checkpoints.verifyLatest();
-        // la firma SIGUE siendo criptograficamente valida (firma la cabeza original)...
+        // the signature is STILL cryptographically valid (it signs the original head)...
         assertThat(afterTamper.signatureValid()).isTrue();
-        // ...y quien DELATA el tamper de contenido es el SHA-256 recomputado, no la firma:
+        // ...and what EXPOSES the content tamper is the recomputed SHA-256, not the signature:
         assertThat(afterTamper.chainIntact()).isFalse();
-        // el eslabon firmado y la cabeza viva NO cambiaron (el tamper fue en posting, no en posting_hash):
+        // the signed link and the live head did NOT change (the tamper was in posting, not in posting_hash):
         assertThat(afterTamper.signedHeadStillInChain()).isTrue();
         assertThat(afterTamper.isLatestHead()).isTrue();
     }
@@ -90,18 +90,18 @@ class JournalCheckpointServiceTest {
         chainer.chainPendingPostings();
         checkpoints.checkpointIfHeadAdvanced();
 
-        // baseline: firma valida con el algoritmo correcto.
+        // baseline: valid signature with the correct algorithm.
         assertThat(checkpoints.verifyLatest().signatureValid()).isTrue();
 
-        // Un escritor de DB reescribe SOLO la columna `algorithm` (firma y clave INTACTAS) para colar un
-        // esquema FALSO. El algoritmo es metadata de confianza: tiene que entrar DENTRO del lazo de
-        // verificacion, no quedar como rotulo. Sin ese check, signatureValid seguiria en true y el verdict
-        // imprimiria "Ed25519 verificada OK".
+        // A DB writer rewrites ONLY the `algorithm` column (signature and key INTACT) to slip in a
+        // FALSE scheme. The algorithm is trust metadata: it has to be INSIDE the verification
+        // loop, not left as a label. Without that check, signatureValid would stay true and the verdict
+        // would print "Ed25519 verified OK".
         jdbc.update("UPDATE journal_checkpoint SET algorithm = ? "
                 + "WHERE chain_seq = (SELECT max(chain_seq) FROM journal_checkpoint)", "Ed25519");
 
         var tampered = checkpoints.verifyLatest();
-        assertThat(tampered.signatureValid()).isFalse();   // el algoritmo declarado ya no coincide con el verificador
+        assertThat(tampered.signatureValid()).isFalse();   // the declared algorithm no longer matches the verifier
         assertThat(checkpoints.audit().tamperDetected()).isTrue();
     }
 
@@ -113,16 +113,16 @@ class JournalCheckpointServiceTest {
         chainer.chainPendingPostings();
         assertThat(checkpoints.checkpointIfHeadAdvanced()).isPresent();
 
-        // llega y se encadena un asiento NUEVO, pero todavia NO re-firmamos (ventana async normal)
+        // a NEW posting arrives and is chained, but we do NOT re-sign yet (normal async window)
         ledger.transfer("external:funding", "wallet:a", 5_000, "later");
         chainer.chainPendingPostings();
 
-        // verificamos el checkpoint VIEJO contra la cadena que ya avanzo
+        // we verify the OLD checkpoint against the chain that has already advanced
         var v = checkpoints.verifyLatest();
         assertThat(v.signatureValid()).isTrue();
-        assertThat(v.chainIntact()).isTrue();              // nada se altero: la cadena recomputa limpio
-        assertThat(v.signedHeadStillInChain()).isTrue();   // el eslabon firmado sigue presente e intacto
-        assertThat(v.isLatestHead()).isFalse();            // pero ya NO es la cabeza viva: operacion NORMAL, no tamper
+        assertThat(v.chainIntact()).isTrue();              // nothing was altered: the chain recomputes clean
+        assertThat(v.signedHeadStillInChain()).isTrue();   // the signed link is still present and intact
+        assertThat(v.isLatestHead()).isFalse();            // but it is NO longer the live head: NORMAL operation, not tamper
     }
 
     @Test
@@ -140,17 +140,17 @@ class JournalCheckpointServiceTest {
         assertThat(ok.checkpointPresent()).isTrue();
         assertThat(ok.signatureValid()).isTrue();
         assertThat(ok.signatureAlgorithm()).isEqualTo("ML-DSA-65");
-        assertThat(ok.verdict()).contains("SIN EVIDENCIA DE EDICION");
-        assertThat(ok.verdict()).contains("integridad-de-mensaje");   // el matiz del trust-anchor viaja al LLM
+        assertThat(ok.verdict()).contains("NO EVIDENCE OF EDITING");
+        assertThat(ok.verdict()).contains("message integrity");   // the trust-anchor nuance reaches the LLM
 
-        // tamper de un asiento ya encadenado
+        // tamper of an already-chained posting
         jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", t1.getId());
 
         var bad = checkpoints.audit();
         assertThat(bad.tamperDetected()).isTrue();
         assertThat(bad.chainIntact()).isFalse();
         assertThat(bad.brokenAtSeq()).isNotNull();
-        assertThat(bad.verdict()).contains("MANIPULACION DETECTADA");
+        assertThat(bad.verdict()).contains("TAMPER DETECTED");
     }
 
     @Test
@@ -161,12 +161,12 @@ class JournalCheckpointServiceTest {
         chainer.chainPendingPostings();
         JournalCheckpoint cp = checkpoints.checkpointIfHeadAdvanced().orElseThrow();
 
-        // un atacante reescribe el entry_hash del eslabon firmado directamente en posting_hash
+        // an attacker rewrites the entry_hash of the signed link directly in posting_hash
         jdbc.update("UPDATE posting_hash SET entry_hash = ? WHERE seq = ?", "f".repeat(64), cp.getChainSeq());
 
         var v = checkpoints.verifyLatest();
-        assertThat(v.signedHeadStillInChain()).isFalse();  // el eslabon firmado ya no coincide con la firma
-        assertThat(v.chainIntact()).isFalse();             // y la cadena tampoco recomputa
+        assertThat(v.signedHeadStillInChain()).isFalse();  // the signed link no longer matches the signature
+        assertThat(v.chainIntact()).isFalse();             // and the chain does not recompute either
     }
 
     @Test
@@ -177,12 +177,12 @@ class JournalCheckpointServiceTest {
         chainer.chainPendingPostings();
         checkpoints.checkpointIfHeadAdvanced();
 
-        // Un actor con escritura en la DB reescribe la clave publica del checkpoint con basura NO-Base64.
-        // verify() no puede ni decodificarla: NO es evidencia criptografica de tamper, es una falla
-        // ESTRUCTURAL. Debe fallar RUIDOSO (IllegalStateException), no devolver un falso "MANIPULACION
-        // DETECTADA" (que es lo que hacia el viejo catch(Exception)->false).
+        // An actor with write access to the DB rewrites the checkpoint's public key with NON-Base64 garbage.
+        // verify() cannot even decode it: it is NOT cryptographic evidence of tamper, it is a STRUCTURAL
+        // failure. It must fail LOUDLY (IllegalStateException), not return a false "TAMPER
+        // DETECTED" (which is what the old catch(Exception)->false did).
         jdbc.update("UPDATE journal_checkpoint SET public_key = ? "
-                + "WHERE chain_seq = (SELECT max(chain_seq) FROM journal_checkpoint)", "no-es-base64-valido!!");
+                + "WHERE chain_seq = (SELECT max(chain_seq) FROM journal_checkpoint)", "not-valid-base64!!");
 
         assertThatThrownBy(() -> checkpoints.audit())
                 .isInstanceOf(IllegalStateException.class);
@@ -240,7 +240,7 @@ class JournalCheckpointServiceTest {
         var first = checkpoints.checkpointIfHeadAdvanced();
         assertThat(first).isPresent();
 
-        // nuevo asiento -> la cabeza avanza -> nuevo checkpoint con seq mayor
+        // new posting -> the head advances -> new checkpoint with a higher seq
         ledger.transfer("external:funding", "wallet:c", 10_000, "t-extra");
         chainer.chainPendingPostings();
         var second = checkpoints.checkpointIfHeadAdvanced();

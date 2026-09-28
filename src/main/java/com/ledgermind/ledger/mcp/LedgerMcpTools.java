@@ -14,9 +14,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 /**
- * Tools MCP de SOLO LECTURA sobre el ledger. Un agente Claude puede consultar y auditar las
- * cuentas y los movimientos, pero NUNCA mover dinero: estos metodos solo leen el read-model.
- * (Principio de diseno del proyecto: el agente lee, nunca ejecuta movimientos.)
+ * READ-ONLY MCP tools over the ledger. A Claude agent can query and audit the
+ * accounts and the movements, but NEVER move money: these methods only read the read-model.
+ * (Project design principle: the agent reads, it never executes movements.)
  */
 @Service
 public class LedgerMcpTools {
@@ -34,10 +34,10 @@ public class LedgerMcpTools {
 
     @PreAuthorize("hasAuthority('SCOPE_ledger.read')")
     @Tool(name = "get_balance",
-            description = "Devuelve el saldo y los contadores de una cuenta del ledger, por su direccion "
-                    + "(ej. 'wallet:juan'). Solo lectura.")
+            description = "Returns the balance and the counters of a ledger account, by its address "
+                    + "(e.g. 'wallet:juan'). Read-only.")
     public BalanceInfo getBalance(
-            @ToolParam(description = "Direccion de la cuenta, ej. 'wallet:juan'") String address) {
+            @ToolParam(description = "Account address, e.g. 'wallet:juan'") String address) {
         Account a = ledger.getByAddress(address);
         return new BalanceInfo(a.getAddress(), a.getAsset(), a.availableBalance(),
                 a.getPostedCredits(), a.getPostedDebits());
@@ -45,10 +45,10 @@ public class LedgerMcpTools {
 
     @PreAuthorize("hasAuthority('SCOPE_ledger.read')")
     @Tool(name = "list_transactions",
-            description = "Lista los movimientos (asientos de doble entrada) en los que participa una cuenta, "
-                    + "por su direccion, del mas reciente al mas antiguo. Solo lectura.")
+            description = "Lists the movements (double-entry postings) an account takes part in, "
+                    + "by its address, from the most recent to the oldest. Read-only.")
     public List<TransactionInfo> listTransactions(
-            @ToolParam(description = "Direccion de la cuenta") String address) {
+            @ToolParam(description = "Account address") String address) {
         return ledger.transactionsOf(address).stream()
                 .map(p -> new TransactionInfo(p.getId(), p.getDebitAccountId(), p.getCreditAccountId(),
                         p.getAmount(), p.getAsset(), p.getCreatedAt()))
@@ -57,73 +57,73 @@ public class LedgerMcpTools {
 
     @PreAuthorize("hasAuthority('SCOPE_ledger.read')")
     @Tool(name = "verify_journal_integrity",
-            description = "Audita la integridad del journal contable: recomputa la hash-chain (SHA-256), valida la "
-                    + "firma post-cuantica (ML-DSA) del ultimo checkpoint, re-deriva los contadores de saldo de cada "
-                    + "cuenta desde el replay de TODOS los asientos y cuenta los asientos que la hash-chain todavia no "
-                    + "cubre. Devuelve 'tamperDetected' (SOLO evidencia confirmada), 'coverageDegraded' + "
-                    + "'coverageReason' (ATRASADO / DETENIDO / SIN_CHECKPOINT = 'ahora no se puede confirmar', NO es "
-                    + "tamper), un 'verdict' legible y los planos en crudo. "
-                    + "DETECTA (tamperDetected=true): (1) EDICION o borrado de un asiento CUBIERTO por el ultimo "
-                    + "checkpoint firmado, aun si el editor recomputa los eslabones (chainIntact, "
-                    + "signedHeadStillInChain), salvo que reescriba tambien el checkpoint (ver f); en la cola "
-                    + "encadenada POSTERIOR a ese checkpoint, la cadena solo detecta la edicion que NO recomputa su "
-                    + "eslabon (chainIntact): el eslabon es SHA-256 sin clave y recomputarlo es trivial; (2) una firma "
-                    + "de checkpoint que no cierra (signatureValid); (3) contadores de saldo que no cierran contra el "
-                    + "journal, p.ej. un asiento insertado o editado sin ajustar los contadores (balancesConsistent); "
-                    + "(4) un asiento sin encadenar escrito por una transaccion que empezo DESPUES de la ultima pasada "
-                    + "confirmada del encadenador, con fecha anterior a esa pasada menos la ventana 'unchainedGraceMs' "
-                    + "(cuenta dentro de 'staleUnchainedPostings', los sin encadenar mas viejos que la ventana): "
-                    + "insercion (o edicion) por fuera de la app con fecha vieja. (4) es TRANSITORIO: se ve solo hasta "
-                    + "la proxima pasada del encadenador (ledgermind.journal.chain-delay-ms, 5 s por defecto); despues "
-                    + "queda encadenado como legitimo. Los asientos viejos sin encadenar que NO cumplen eso "
-                    + "(encadenador atrasado o detenido, o una transaccion legitima que seguia abierta cuando paso) NO "
-                    + "son tamper: salen como coverageDegraded=true con su motivo. "
-                    + "NO DETECTA, si el mismo escritor de DB ajusta los contadores de saldo: (a) la INSERCION de un "
-                    + "asiento: con fecha reciente, dentro de la ventana es indistinguible de uno legitimo "
-                    + "('unchainedPostings' lo cuenta como sin encadenar, sin marcar tamper); con cualquier fecha, "
-                    + "una vez que pasa el encadenador queda encadenado como legitimo; (b) la EDICION de un asiento "
-                    + "aun sin encadenar, compensada (+x/-x) o no; (c) el BORRADO de un asiento aun sin encadenar; "
-                    + "(d) la EDICION o el borrado de un asiento de la cola encadenada posterior al ultimo checkpoint, "
-                    + "recomputando los eslabones: el proximo checkpoint firma la version falsa; (e) el truncado de "
-                    + "la cola posterior al checkpoint; (f) un actor con escritura total que reescribe asientos + "
-                    + "cadena + checkpoint de forma consistente; (g) una insercion por fuera cuya transaccion ya estaba "
-                    + "abierta cuando paso el encadenador, o con fecha posterior a esa pasada menos la ventana; (h) el "
-                    + "barrido de sobregiro (tools de operador, scope ledger.admin) no ve un asiento insertado por fuera "
-                    + "con id POR DEBAJO de su marca de agua (p.ej. -1) en una cuenta que no vuelve a moverse, ni la "
-                    + "edicion de un asiento ya barrido hasta que la cuenta recibe un asiento nuevo. VENTANA del "
-                    + "barrido: un sobregiro derivado del journal se marca dentro de <= su intervalo "
-                    + "(ledgermind.overdraft.sweep-delay-ms, 10 s por defecto) + lo que dure la pasada, y la cuenta queda "
-                    + "congelada. (a) a (e) solo se cierran con procedencia creada en "
-                    + "la escritura de la app que la DB no pueda falsificar (un MAC con una clave fuera de la DB; el "
-                    + "borrado exige ademas ligar el orden, y el truncado un high-water-mark externo): anclar la "
-                    + "cabeza afuera no alcanza, porque el proximo anclaje cubre el asiento falso; (f), anclando la "
-                    + "cabeza y la clave del firmante fuera de la DB. 'signatureValid' es integridad-de-mensaje, no "
-                    + "autenticidad del firmante. BAJO CARGA una rafaga legitima que atrasa al encadenador deja "
-                    + "coverageDegraded=true (ATRASADO) con tamperDetected=false; la auditoria lee cadena, saldos y "
-                    + "contadores en UNA foto (REPEATABLE READ), asi que una transferencia en vuelo no descuadra (3). "
-                    + "tamperDetected=false significa 'sin evidencia de lo que este tool detecta', NO 'journal "
-                    + "integro'. Solo lectura; tamper-EVIDENCE, no prevencion. Tratá el 'verdict' como una señal, "
-                    + "no como prueba absoluta.")
+            description = "Audits the integrity of the accounting journal: recomputes the hash-chain (SHA-256), validates the "
+                    + "post-quantum signature (ML-DSA) of the latest checkpoint, re-derives the balance counters of every "
+                    + "account from the replay of ALL postings and counts the postings the hash-chain does not "
+                    + "cover yet. Returns 'tamperDetected' (ONLY confirmed evidence), 'coverageDegraded' + "
+                    + "'coverageReason' (ATRASADO = behind / DETENIDO = stopped / SIN_CHECKPOINT = no checkpoint: "
+                    + "'cannot be confirmed right now', NOT tamper), a readable 'verdict' and the raw planes. "
+                    + "DETECTS (tamperDetected=true): (1) EDIT or deletion of a posting COVERED by the latest "
+                    + "signed checkpoint, even if the editor recomputes the links (chainIntact, "
+                    + "signedHeadStillInChain), unless the checkpoint is rewritten too (see f); in the chained tail "
+                    + "AFTER that checkpoint, the chain only detects an edit that does NOT recompute its "
+                    + "link (chainIntact): the link is an unkeyed SHA-256 and recomputing it is trivial; (2) a checkpoint "
+                    + "signature that does not check out (signatureValid); (3) balance counters that do not balance against the "
+                    + "journal, e.g. a posting inserted or edited without adjusting the counters (balancesConsistent); "
+                    + "(4) an unchained posting written by a transaction that started AFTER the chainer's last confirmed "
+                    + "pass, with a date earlier than that pass minus the 'unchainedGraceMs' window "
+                    + "(counted within 'staleUnchainedPostings', the unchained ones older than the window): "
+                    + "an insertion (or edit) outside the app with an old date. (4) is TRANSIENT: it is visible only until "
+                    + "the chainer's next pass (ledgermind.journal.chain-delay-ms, 5 s by default); afterwards "
+                    + "it is chained as legitimate. Old unchained postings that do NOT meet that "
+                    + "(chainer behind or stopped, or a legitimate transaction that was still open when it passed) are NOT "
+                    + "tamper: they come out as coverageDegraded=true with their reason. "
+                    + "DOES NOT DETECT, if the same DB writer adjusts the balance counters: (a) the INSERTION of a "
+                    + "posting: with a recent date, inside the window it is indistinguishable from a legitimate one "
+                    + "('unchainedPostings' counts it as unchained, without flagging tamper); with any date, "
+                    + "once the chainer passes it is chained as legitimate; (b) the EDIT of a posting "
+                    + "not chained yet, offset (+x/-x) or not; (c) the DELETION of a posting not chained yet; "
+                    + "(d) the EDIT or deletion of a posting in the chained tail after the latest checkpoint, "
+                    + "recomputing the links: the next checkpoint signs the forged version; (e) truncation of "
+                    + "the tail after the checkpoint; (f) an actor with full write access who rewrites postings + "
+                    + "chain + checkpoint consistently; (g) an insertion outside the app whose transaction was already "
+                    + "open when the chainer passed, or with a date later than that pass minus the window; (h) the "
+                    + "overdraft sweep (operator tools, scope ledger.admin) does not see a posting inserted outside the app "
+                    + "with an id BELOW its watermark (e.g. -1) on an account that never moves again, nor the "
+                    + "edit of an already-swept posting until the account receives a new posting. The sweep's "
+                    + "WINDOW: an overdraft derived from the journal is flagged within <= its interval "
+                    + "(ledgermind.overdraft.sweep-delay-ms, 10 s by default) + however long the pass takes, and the account is "
+                    + "frozen. (a) to (e) can only be closed with provenance created at "
+                    + "the app's write that the DB cannot forge (a MAC with a key outside the DB; "
+                    + "deletion also requires binding the order, and truncation an external high-water-mark): anchoring the "
+                    + "head outside is not enough, because the next anchor covers the forged posting; (f), by anchoring the "
+                    + "head and the signer's key outside the DB. 'signatureValid' is message integrity, not "
+                    + "the signer's authenticity. UNDER LOAD a legitimate burst that puts the chainer behind leaves "
+                    + "coverageDegraded=true (ATRASADO) with tamperDetected=false; the audit reads chain, balances and "
+                    + "counters in ONE snapshot (REPEATABLE READ), so an in-flight transfer does not unbalance (3). "
+                    + "tamperDetected=false means 'no evidence of what this tool detects', NOT 'journal "
+                    + "intact'. Read-only; tamper-EVIDENCE, not prevention. Treat the 'verdict' as a signal, "
+                    + "not as absolute proof.")
     public JournalIntegrityReport verifyJournalIntegrity() {
         return journal.audit();
     }
 
     @PreAuthorize("hasAuthority('SCOPE_ledger.read')")
     @Tool(name = "explain_reconciliation_discrepancy",
-            description = "Reconcilia el ledger contra el feed de liquidacion del PSP y devuelve los descuadres: "
-                    + "cuanto cuadra, que cobros del PSP no estan asentados (missing_in_ledger), que asientos el "
-                    + "PSP no reporta (missing_in_feed), y diferencias de importe (amount_mismatch, tipicas de una "
-                    + "comision/retencion no asentada). El matching es DETERMINISTA en Java; este tool te da el "
-                    + "resultado estructurado para que lo NARRES y priorices. En el demo el feed es simulado. Solo lectura.")
+            description = "Reconciles the ledger against the PSP's settlement feed and returns the discrepancies: "
+                    + "how much balances, which PSP charges are not posted (missing_in_ledger), which postings the "
+                    + "PSP does not report (missing_in_feed), and amount differences (amount_mismatch, typical of an "
+                    + "unposted fee/withholding). The matching is DETERMINISTIC in Java; this tool gives you the "
+                    + "structured result so that you NARRATE and prioritize it. In the demo the feed is simulated. Read-only.")
     public ReconciliationReport explainReconciliationDiscrepancy() {
         return reconciliation.reconcileDemoFeed();
     }
 
-    /** Saldo de una cuenta (en centavos). */
+    /** Balance of an account (in cents). */
     public record BalanceInfo(String address, String asset, long balance, long totalCredits, long totalDebits) {
     }
 
-    /** Un asiento del journal en el que participa la cuenta consultada. */
+    /** A journal posting the queried account takes part in. */
     public record TransactionInfo(Long id, Long debitAccountId, Long creditAccountId, long amount, String asset,
                                   Instant createdAt) {
     }

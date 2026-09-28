@@ -63,7 +63,7 @@ class ChainerStateForgeryDowngradeTest {
         JournalIntegrityReport before = checkpoints.audit();
         System.out.println("[STATE-INTACT] tamper=" + before.tamperDetected() + " degraded=" + before.coverageDegraded());
         assertThat(before.tamperDetected()).isTrue();                 // the flag fires on the untouched state
-        assertThat(before.verdict()).contains("insertado por fuera de la app");
+        assertThat(before.verdict()).contains("inserted outside the app");
         assertThat(before.coverageDegraded()).isFalse();
     }
 
@@ -76,7 +76,7 @@ class ChainerStateForgeryDowngradeTest {
         assertThat(after.staleUnchainedPostings()).isEqualTo(1);    // the forged posting is still there, still counted
         assertThat(after.chainIntact()).isTrue();
         assertThat(after.balancesConsistent()).isTrue();
-        assertThat(after.verdict()).doesNotContain("MANIPULACION DETECTADA");
+        assertThat(after.verdict()).doesNotContain("TAMPER DETECTED");
     }
 
     @Test

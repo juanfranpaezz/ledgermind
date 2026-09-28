@@ -4,8 +4,8 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 /**
- * Servicio de aplicacion del ledger: orquesta el dominio para la capa web y para las tools MCP.
- * Resuelve direcciones de cuenta a ids y delega el movimiento de dinero en {@link TransferService}.
+ * Ledger application service: orchestrates the domain for the web layer and for the MCP tools.
+ * It resolves account addresses to ids and delegates the movement of money to {@link TransferService}.
  */
 @Service
 public class LedgerService {
@@ -35,7 +35,7 @@ public class LedgerService {
         return transfers.transfer(new TransferCommand(debitId, creditId, amount, idempotencyKey));
     }
 
-    /** Movimientos (asientos) en los que participa una cuenta. Solo lectura. */
+    /** Movements (postings) an account takes part in. Read-only. */
     public List<Posting> transactionsOf(String address) {
         Long id = getByAddress(address).getId();
         return postings.findByDebitAccountIdOrCreditAccountIdOrderByIdDesc(id, id);

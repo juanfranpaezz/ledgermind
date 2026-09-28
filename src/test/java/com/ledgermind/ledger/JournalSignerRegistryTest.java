@@ -8,10 +8,10 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Prueba el CORAZON de la crypto-agility: el dispatch por algoritmo del {@link JournalSignerRegistry}.
- * Sin Spring ni Postgres — instancia los firmantes reales (BouncyCastle corre de verdad) y arma el
- * registro a mano. Cubre: (1) verificar bien firmas de >=2 esquemas, (2) detectar tamper en cada
- * esquema, (3) rechazar un algoritmo desconocido como falla estructural (no como tamper).
+ * Tests the HEART of crypto-agility: the by-algorithm dispatch of {@link JournalSignerRegistry}.
+ * No Spring or Postgres — it instantiates the real signers (BouncyCastle really runs) and builds the
+ * registry by hand. It covers: (1) correctly verifying signatures of >=2 schemes, (2) detecting tamper in each
+ * scheme, (3) rejecting an unknown algorithm as a structural failure (not as tamper).
  */
 class JournalSignerRegistryTest {
 
@@ -36,7 +36,7 @@ class JournalSignerRegistryTest {
         byte[] data = msg("ledgermind:journal-checkpoint:v1:7:deadbeef");
         String sig = mldsa.sign(data);
 
-        // dispatch por NOMBRE -> usa el verificador ML-DSA aunque el registro tambien tenga Ed25519
+        // dispatch by NAME -> it uses the ML-DSA verifier even though the registry also has Ed25519
         assertThat(registry.verify("ML-DSA-65", data, sig, mldsa.publicKeyBase64())).isTrue();
     }
 
@@ -50,8 +50,8 @@ class JournalSignerRegistryTest {
 
     @Test
     void no_cruza_esquemas_una_firma_Ed25519_NO_verifica_como_ML_DSA() {
-        // Una firma Ed25519 presentada como ML-DSA: la clave publica Ed25519 no es un X.509 que el
-        // KeyFactory de ML-DSA pueda parsear -> falla ESTRUCTURAL (no es evidencia de tamper) -> ruidoso.
+        // An Ed25519 signature presented as ML-DSA: the Ed25519 public key is not an X.509 that the
+        // ML-DSA KeyFactory can parse -> STRUCTURAL failure (not evidence of tamper) -> loud.
         byte[] data = msg("head:abc123");
         String edSig = ed.sign(data);
 
@@ -82,11 +82,11 @@ class JournalSignerRegistryTest {
         byte[] data = msg("head:abc123");
         String sig = mldsa.sign(data);
 
-        // Un algoritmo no registrado NO puede verificarse: eso NO es tamper, es que el verificador no
-        // esta desplegado. Debe fallar RUIDOSO (IllegalStateException), NO devolver false (falso "tamper").
+        // An unregistered algorithm CANNOT be verified: that is NOT tamper, it means the verifier is not
+        // deployed. It must fail LOUDLY (IllegalStateException), NOT return false (a false "tamper").
         assertThatThrownBy(() -> registry.verify("RSA-PSS", data, sig, mldsa.publicKeyBase64()))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("desconocido");
+                .hasMessageContaining("Unknown");
     }
 
     @Test
@@ -99,9 +99,9 @@ class JournalSignerRegistryTest {
 
     @Test
     void dos_firmantes_con_el_mismo_algoritmo_es_un_error_de_configuracion() {
-        // Defensa: si dos beans declararan el mismo algorithm(), no se elige uno en silencio -> falla.
+        // Defence: if two beans declared the same algorithm(), one is not picked silently -> it fails.
         assertThatThrownBy(() -> new JournalSignerRegistry(List.of(mldsa, new MlDsaJournalSigner())))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("mismo algorithm");
+                .hasMessageContaining("same algorithm");
     }
 }

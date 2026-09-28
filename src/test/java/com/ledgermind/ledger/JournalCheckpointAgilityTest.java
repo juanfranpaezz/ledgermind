@@ -14,11 +14,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Crypto-agility END-TO-END a nivel servicio: corre con el firmante ACTIVO seteado a Ed25519 (no el
- * default ML-DSA-65) y prueba que el checkpoint se firma con Ed25519 y que la VERIFICACION lo despacha
- * con Ed25519 (no con ML-DSA). Esto demuestra que el dispatch por algoritmo del
- * {@link JournalCheckpointService} esta cableado de verdad, no solo en el registry aislado. Mismo tamper
- * que el test de ML-DSA: tras editar un asiento, la firma sigue valida y quien delata es el SHA-256.
+ * END-TO-END crypto-agility at the service level: it runs with the ACTIVE signer set to Ed25519 (not the
+ * default ML-DSA-65) and proves that the checkpoint is signed with Ed25519 and that VERIFICATION dispatches it
+ * to Ed25519 (not to ML-DSA). This shows that the by-algorithm dispatch of
+ * {@link JournalCheckpointService} is really wired, not only in the isolated registry. Same tamper
+ * as the ML-DSA test: after editing a posting, the signature stays valid and what exposes it is SHA-256.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",
@@ -57,23 +57,23 @@ class JournalCheckpointAgilityTest {
         chainer.chainPendingPostings();
         var cp = checkpoints.checkpointIfHeadAdvanced();
         assertThat(cp).isPresent();
-        // el checkpoint quedo firmado con el esquema ACTIVO = Ed25519, NO con el default ML-DSA-65
+        // the checkpoint was signed with the ACTIVE scheme = Ed25519, NOT with the default ML-DSA-65
         assertThat(cp.get().getAlgorithm()).isEqualTo("Ed25519");
 
-        // la verificacion despacha por ese algoritmo y cierra en verde
+        // verification dispatches by that algorithm and comes out green
         var ok = checkpoints.verifyLatest();
         assertThat(ok.algorithm()).isEqualTo("Ed25519");
         assertThat(ok.signatureValid()).isTrue();
         assertThat(ok.chainIntact()).isTrue();
         assertThat(ok.signedHeadStillInChain()).isTrue();
 
-        // audit() tambien, con el algoritmo correcto en el verdict
+        // audit() too, with the correct algorithm in the verdict
         var audit = checkpoints.audit();
         assertThat(audit.tamperDetected()).isFalse();
         assertThat(audit.signatureValid()).isTrue();
         assertThat(audit.signatureAlgorithm()).isEqualTo("Ed25519");
 
-        // tamper: la firma Ed25519 SIGUE valida (firma la cabeza original); el SHA-256 delata el contenido
+        // tamper: the Ed25519 signature is STILL valid (it signs the original head); SHA-256 exposes the content
         jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", t1.getId());
         var afterTamper = checkpoints.verifyLatest();
         assertThat(afterTamper.signatureValid()).isTrue();
@@ -88,9 +88,9 @@ class JournalCheckpointAgilityTest {
         chainer.chainPendingPostings();
         checkpoints.checkpointIfHeadAdvanced();
 
-        // Simula un checkpoint firmado con un esquema que este despliegue NO tiene desplegado (p.ej.
-        // se retiro el verificador). No poder verificar NO es evidencia de tamper -> debe fallar RUIDOSO,
-        // no devolver un falso "MANIPULACION DETECTADA".
+        // Simulates a checkpoint signed with a scheme this deployment does NOT have deployed (e.g.
+        // the verifier was retired). Not being able to verify is NOT evidence of tamper -> it must fail LOUDLY,
+        // not return a false "TAMPER DETECTED".
         jdbc.update("UPDATE journal_checkpoint SET algorithm = ? "
                 + "WHERE chain_seq = (SELECT max(chain_seq) FROM journal_checkpoint)", "RSA-PSS-4096");
 

@@ -3,8 +3,8 @@ package com.ledgermind.ledger.reconciliation;
 import java.util.List;
 
 /**
- * Resultado de reconciliar el feed del PSP contra el ledger. {@code balanced} es true solo si no hay
- * ninguna discrepancia. {@code summary} es un veredicto legible para que un agente lo narre.
+ * Result of reconciling the PSP feed against the ledger. {@code balanced} is true only if there is
+ * no discrepancy at all. {@code summary} is a readable verdict for an agent to narrate.
  */
 public record ReconciliationReport(int feedCount, int ledgerCount, int matched,
                                    long feedTotal, long ledgerTotal, long difference,

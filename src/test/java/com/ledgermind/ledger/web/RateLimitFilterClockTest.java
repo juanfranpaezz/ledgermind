@@ -15,7 +15,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 /**
  * {@link RateLimitFilter} as a unit, with an injected clock: the window semantics the README and ADR 0004 state
  * (fixed window; up to twice the limit across a boundary; nested {@code /api/journal/**} paths counted) and the
- * configuration it must honour (constructor guard, non-default window-ms and max-per-window; correctness gate r3:
+ * configuration it must honour (constructor guard, non-default window-ms and max-per-window):
  * each of those three guards survived mutation with the previous suite). No Spring
  * context and no sleeping: every request is placed at an exact millisecond. Callers here are anonymous (empty
  * security context), so they all share the anonymous window.

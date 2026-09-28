@@ -21,28 +21,28 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Barrido de sobregiro con marca de agua + congelamiento (dec-151). Opcion B del informe de medicion: en vez de
- * re-derivar el saldo en CADA transferencia (120-314 ms por transferencia a 1M asientos, dentro del lazo de
- * reintentos), un job re-deriva cada {@code sweep-delay-ms} el saldo de las cuentas que tocaron asientos NUEVOS desde
- * la ultima marca de agua, y congela la que viola su regla de sobregiro. La transferencia solo agrega
- * {@link #assertNotFrozen}: una lectura indexada.
+ * Overdraft sweep with a watermark + freeze. Instead of
+ * re-deriving the balance on EVERY transfer (120-314 ms per transfer at 1M postings, inside the retry
+ * loop), a job re-derives every {@code sweep-delay-ms} the balance of the accounts touched by NEW postings since
+ * the last watermark, and freezes the one that violates its overdraft rule. The transfer only adds
+ * {@link #assertNotFrozen}: one indexed read.
  *
- * <p>Correccion bajo concurrencia: el barrido corre en UNA transaccion REPEATABLE READ, asi los contadores y el
- * journal se leen en la misma foto (una transferencia en vuelo es invisible entera o visible entera). La marca de agua
- * solo ELIGE que cuentas mirar (las tocadas por asientos nuevos); cada cuenta tocada se re-deriva desde TODOS sus
- * asientos en esa foto antes de decidir (un total incremental nunca decide solo). La marca de agua solo avanza hasta
- * antes del primer asiento mas joven que {@code watermark-lag-ms}, para que un asiento de id menor que commitea tarde
- * entre igual. Dos barridos a la vez (varias instancias): el perdedor falla con un error de serializacion y hace
- * rollback; NO hay reintento, la pasada siguiente cubre lo suyo (fail-closed).
+ * <p>Correctness under concurrency: the sweep runs in ONE REPEATABLE READ transaction, so the counters and the
+ * journal are read in the same snapshot (an in-flight transfer is either entirely invisible or entirely visible). The watermark
+ * only CHOOSES which accounts to look at (the ones touched by new postings); every touched account is re-derived from ALL its
+ * postings in that snapshot before deciding (an incremental total never decides on its own). The watermark only advances up to
+ * just before the first posting younger than {@code watermark-lag-ms}, so that a posting with a lower id that commits late
+ * still gets in. Two sweeps at once (several instances): the loser fails with a serialization error and rolls
+ * back; there is NO retry, the next pass covers its share (fail-closed).
  *
- * <p>DETECTA: un saldo derivado del journal que viola la regla de sobregiro de una cuenta tocada por un asiento nuevo
- * (p.ej. un asiento insertado por fuera de la app que la sobregira, o una transferencia legitima que paso el gate
- * porque los contadores estaban inflados), y la edicion de un asiento ya barrido en cuanto la cuenta recibe un asiento
- * nuevo. Ventana: <= sweep-delay-ms + lo que dure el barrido. NO DETECTA: la edicion de un asiento ya barrido (id <=
- * marca de agua) hasta que la cuenta recibe un asiento nuevo (eso lo ven la auditoria y la hash-chain si esta
- * encadenado); un asiento insertado por fuera con id POR DEBAJO de la marca de agua (p.ej. -1 con OVERRIDING SYSTEM
- * VALUE) en una cuenta que no vuelve a moverse (documentado, fijado por un test); y NO previene la primera
- * transferencia posterior a la manipulacion: congela despues.
+ * <p>DETECTS: a journal-derived balance that violates the overdraft rule of an account touched by a new posting
+ * (e.g. a posting inserted outside the app that overdraws it, or a legitimate transfer that passed the gate
+ * because the counters were inflated), and the edit of an already-swept posting as soon as the account receives a new
+ * posting. Window: <= sweep-delay-ms + however long the sweep takes. DOES NOT DETECT: the edit of an already-swept posting (id <=
+ * watermark) until the account receives a new posting (the audit sees it, and so does the hash-chain if it is
+ * chained); a posting inserted outside the app with an id BELOW the watermark (e.g. -1 with OVERRIDING SYSTEM
+ * VALUE) on an account that never moves again (documented, pinned by a test); and it does NOT prevent the first
+ * transfer after the tampering: it freezes afterwards.
  */
 @Service
 public class OverdraftSweeper {
@@ -65,12 +65,12 @@ public class OverdraftSweeper {
         this.watermarkLagMs = watermarkLagMs;
     }
 
-    /** Resultado de una pasada: cuantas cuentas re-derivo, que rango de asientos leyo, y cuantas congelo. */
+    /** Result of a pass: how many accounts it re-derived, which range of postings it read, and how many it froze. */
     public record SweepResult(long previousWatermark, long newWatermark, long scannedFromId, long scannedToId,
                               int touchedAccounts, int flagged, long durationMicros, boolean resetWatermark) {
     }
 
-    /** Una marca de sobregiro activa (= congelamiento) con su evidencia. */
+    /** An active overdraft flag (= freeze) with its evidence. */
     public record OverdraftFlag(long id, long accountId, Instant flaggedAt, long derivedAvailable, long storedAvailable,
                                 long postingIdFrom, long postingIdTo) {
     }
@@ -83,7 +83,7 @@ public class OverdraftSweeper {
         long t0 = System.nanoTime();
         SweepResult r = snapshotTx.execute(status -> sweepInSnapshot(t0));
         if (r != null && r.flagged() > 0) {
-            log.warn("barrido de sobregiro: {} cuenta(s) congelada(s) (asientos {}..{})", r.flagged(),
+            log.warn("overdraft sweep: {} account(s) frozen (postings {}..{})", r.flagged(),
                     r.scannedFromId(), r.scannedToId());
         }
         return r;
@@ -97,7 +97,7 @@ public class OverdraftSweeper {
         long previous = w;
         boolean reset = false;
         if (max < w) {
-            // El journal quedo por debajo de la marca (restore o truncado): re-derivar desde cero, nunca saltear.
+            // The journal ended up below the watermark (restore or truncation): re-derive from scratch, never skip.
             jdbc.update("DELETE FROM account_derived_total");
             w = 0L;
             reset = true;
@@ -116,7 +116,7 @@ public class OverdraftSweeper {
         long w2 = firstYoung == null ? max : Math.max(w, firstYoung - 1);
         range.addValue("w2", w2);
 
-        // Solo la COLA desde la marca de agua: por cuenta, lo que suma toda la cola y lo que suma hasta w2.
+        // Only the TAIL from the watermark: per account, what the whole tail sums and what it sums up to w2.
         // Only first/last posting id per account are read from the tail. The sums are NOT read as long: a NUMERIC
         // sum above Long.MAX made rs.getLong throw, and the whole pass (the overdraft freeze) stopped.
         Map<Long, long[]> tail = new HashMap<>();   // account -> {firstId, lastId}
@@ -131,9 +131,9 @@ public class OverdraftSweeper {
                     tail.put(rs.getLong("account_id"), new long[] {rs.getLong("first_id"), rs.getLong("last_id")});
                 });
 
-        // (a2) Cada cuenta TOCADA por la cola se re-deriva desde TODOS sus asientos (id <= max), no desde el total
-        // incremental: asi la edicion de un asiento ya barrido (debajo de la marca) se ve en cuanto la cuenta vuelve a
-        // moverse, y una deriva del total incremental no puede costar una deteccion en una cuenta tocada.
+        // (a2) Every account TOUCHED by the tail is re-derived from ALL its postings (id <= max), not from the incremental
+        // total: that way the edit of an already-swept posting (below the watermark) is seen as soon as the account moves
+        // again, and a drift of the incremental total cannot cost a detection on a touched account.
         // Exact sums: PostgreSQL sum(bigint) is NUMERIC and can exceed Long.MAX; the decision is taken in BigInteger.
         Map<Long, BigInteger[]> full = new HashMap<>();   // account -> {fd, fc, fdu, fcu}
         named.query("SELECT account_id, sum(d) AS fd, sum(c) AS fc,"
@@ -211,8 +211,8 @@ public class OverdraftSweeper {
     }
 
     /**
-     * Camino caliente de la transferencia: UNA lectura por el indice parcial overdraft_flag_one_active_per_account.
-     * Sin re-derivacion. Tira {@link AccountFrozenException} si el origen o el destino estan congelados.
+     * Transfer hot path: ONE read through the partial index overdraft_flag_one_active_per_account.
+     * No re-derivation. Throws {@link AccountFrozenException} if the source or the destination is frozen.
      */
     public void assertNotFrozen(long debitAccountId, long creditAccountId) {
         List<long[]> active = jdbc.query("SELECT account_id, id FROM overdraft_flag"
@@ -223,7 +223,7 @@ public class OverdraftSweeper {
         }
     }
 
-    /** Marcas activas (para el operador y el tool de admin). */
+    /** Active flags (for the operator and the admin tool). */
     public List<OverdraftFlag> activeFlags() {
         return jdbc.query("SELECT id, account_id, flagged_at, derived_available, stored_available, posting_id_from,"
                         + " posting_id_to FROM overdraft_flag WHERE cleared_at IS NULL ORDER BY id",
@@ -232,12 +232,12 @@ public class OverdraftSweeper {
     }
 
     /**
-     * Descongela: registra QUIEN y POR QUE (ambos obligatorios). Devuelve cuantas marcas levanto (0 o 1). Si el
-     * saldo derivado sigue violando la regla, el proximo asiento que toque la cuenta la vuelve a marcar.
+     * Unfreezes: records WHO and WHY (both mandatory). Returns how many flags it lifted (0 or 1). If the
+     * derived balance still violates the rule, the next posting that touches the account flags it again.
      */
     public int unfreeze(String address, String clearedBy, String reason) {
         if (clearedBy == null || clearedBy.isBlank() || reason == null || reason.isBlank()) {
-            throw new IllegalArgumentException("Descongelar exige quien (clearedBy) y por que (reason).");
+            throw new IllegalArgumentException("Unfreezing requires who (clearedBy) and why (reason).");
         }
         Integer n = writeTx.execute(status -> jdbc.update("UPDATE overdraft_flag SET cleared_at = now(),"
                 + " cleared_by = ?, clear_reason = ? WHERE cleared_at IS NULL"

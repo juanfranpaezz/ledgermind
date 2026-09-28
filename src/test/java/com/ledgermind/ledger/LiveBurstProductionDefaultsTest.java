@@ -13,8 +13,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * La misma rafaga limpia de {@link LiveBurstFloorGraceTest}, con los valores de PRODUCCION (encadenador cada 5 s,
- * ventana 60 s, barrido cada 10 s, checkpoint cada 10 s): 0 "por fuera", 0 MANIPULACION DETECTADA, 0 tamperDetected.
+ * The same clean burst as {@link LiveBurstFloorGraceTest}, with the PRODUCTION values (chainer every 5 s,
+ * window 60 s, sweep every 10 s, checkpoint every 10 s): 0 "outside the app", 0 TAMPER DETECTED, 0 tamperDetected.
  */
 @SpringBootTest(properties = "spring.datasource.hikari.maximum-pool-size=20")
 @Testcontainers

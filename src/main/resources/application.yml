@@ -6,49 +6,49 @@ spring:
     username: ledgermind
     password: ledgermind
   jpa:
-    # Flyway es el dueño del esquema; Hibernate solo VALIDA que las entidades coincidan.
+    # Flyway owns the schema; Hibernate only VALIDATES that the entities match.
     hibernate:
       ddl-auto: validate
-    # Evitamos el anti-patron Open-Session-In-View (mantiene la sesion JPA abierta en la capa web).
+    # We avoid the Open-Session-In-View anti-pattern (it keeps the JPA session open in the web layer).
     open-in-view: false
     properties:
       hibernate:
         jdbc:
           time_zone: UTC
-        # Ordena los UPDATE/INSERT por entidad+id antes de flushear: dos transferencias opuestas
-        # (A->B y B->A) adquieren los locks de fila en el MISMO orden -> reduce el deadlock 40P01 de raiz.
-        # (El retry de TransferService cubre el deadlock residual; esto baja su frecuencia.)
+        # Orders UPDATEs/INSERTs by entity+id before flushing: two opposite transfers
+        # (A->B and B->A) acquire the row locks in the SAME order -> reduces the 40P01 deadlock at its root.
+        # (TransferService's retry covers the residual deadlock; this lowers its frequency.)
         order_updates: true
         order_inserts: true
   flyway:
     enabled: true
   mvc:
     problemdetails:
-      # Los errores que Spring resuelve solo (validacion @Valid -> MethodArgumentNotValidException, body
-      # JSON malformado -> HttpMessageNotReadableException, media-type, type-mismatch) se serializan como
-      # ProblemDetail RFC 7807, IGUAL que las excepciones de dominio. Sin esto el 400 mas frecuente del
-      # cliente caia al shape legacy {timestamp,status,error,path}: dos contratos de error en la misma API.
+      # The errors Spring resolves on its own (@Valid validation -> MethodArgumentNotValidException, malformed JSON
+      # body -> HttpMessageNotReadableException, media-type, type-mismatch) are serialized as
+      # RFC 7807 ProblemDetail, JUST LIKE the domain exceptions. Without this the client's most frequent 400
+      # fell into the legacy {timestamp,status,error,path} shape: two error contracts in the same API.
       enabled: true
   ai:
     mcp:
       server:
         name: ledgermind-mcp
         version: 0.0.1
-        protocol: STREAMABLE   # endpoint MCP = /mcp (mcp-security no soporta el SSE deprecado)
+        protocol: STREAMABLE   # MCP endpoint = /mcp (mcp-security does not support the deprecated SSE)
   security:
     oauth2:
       resourceserver:
         jwt:
-          # Lazy: el decoder se crea SIN fetch al arranque; valida contra el JWKS del emisor en la 1ra llamada a /mcp.
+          # Lazy: the decoder is created WITHOUT a fetch at startup; it validates against the issuer's JWKS on the 1st call to /mcp.
           jwk-set-uri: ${JWK_SET_URI:http://localhost:8080/oauth2/jwks}
 
 ledgermind:
   journal:
     signer:
-      # Esquema de firma ACTIVO para los checkpoints NUEVOS (crypto-agility, lado de FIRMA). Rotar =
-      # cambiar este valor; los checkpoints viejos se siguen verificando con SU algoritmo (el registry
-      # despacha por el campo algorithm del checkpoint). Valores: ML-DSA-65 (FIPS 204, post-cuantico,
-      # default) | Ed25519 (clasico). Debe existir un JournalSigner registrado para el valor elegido.
+      # ACTIVE signature scheme for NEW checkpoints (crypto-agility, SIGNING side). Rotating =
+      # changing this value; old checkpoints are still verified with THEIR algorithm (the registry
+      # dispatches by the checkpoint's algorithm field). Values: ML-DSA-65 (FIPS 204, post-quantum,
+      # default) | Ed25519 (classical). A registered JournalSigner must exist for the chosen value.
       algorithm: ${LEDGERMIND_JOURNAL_SIGNER_ALGORITHM:ML-DSA-65}
 
 management:
@@ -69,5 +69,5 @@ management:
       application: ledgermind
     distribution:
       percentiles-histogram:
-        # Publica los buckets del Timer http.server.requests -> permite p95/p99 via histogram_quantile en Grafana.
+        # Publishes the buckets of the http.server.requests Timer -> enables p95/p99 via histogram_quantile in Grafana.
         http.server.requests: true

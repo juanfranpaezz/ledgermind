@@ -1,16 +1,16 @@
-# Stack de observabilidad COMPLETO: app + Postgres + Prometheus + Grafana, todo junto.
-# Pensado para correr always-on en el VPS (o local para sacar el screenshot del dashboard).
+# FULL observability stack: app + Postgres + Prometheus + Grafana, all together.
+# Meant to run always-on on a VPS (or locally to take the dashboard screenshot).
 #
 #   docker compose -f docker-compose.observability.yml up --build -d
 #
-# Luego:
-#   - Grafana:    http://<host>:3000   (dashboard "LedgerMind — Observabilidad" ya provisionado; anonimo read-only)
+# Then:
+#   - Grafana:    http://<host>:3000   (dashboard "LedgerMind — Observability" already provisioned; anonymous read-only)
 #   - Prometheus: http://<host>:9090
 #   - App/demo:   http://<host>:8080
 #
-# Para generar tráfico y ver los paneles moverse, tocá los botones del demo en :8080 (o pegale al /api con X-API-Key).
-# La app exige LEDGERMIND_API_KEYS_FILE (fail-closed). Por defecto se monta observability/demo-api-keys.empty, un
-# archivo VACIO: solo andan los cinco /api/demo/* anonimos. Para llamar el resto del /api con clave:
+# To generate traffic and watch the panels move, click the demo buttons on :8080 (or call /api with X-API-Key).
+# The app requires LEDGERMIND_API_KEYS_FILE (fail-closed). By default observability/demo-api-keys.empty is mounted, an
+# EMPTY file: only the five anonymous /api/demo/* endpoints work. To call the rest of /api with a key:
 #   LEDGERMIND_API_KEYS_HOST_FILE=~/.ledgermind/api-keys.txt docker compose -f docker-compose.observability.yml up --build -d
 services:
   postgres:
@@ -46,7 +46,7 @@ services:
       - "8080:8080"
 
   prometheus:
-    image: prom/prometheus:latest   # en prod: pinnear una version
+    image: prom/prometheus:latest   # in prod: pin a version
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
@@ -55,11 +55,11 @@ services:
       - "9090:9090"
 
   grafana:
-    image: grafana/grafana:latest   # en prod: pinnear una version
+    image: grafana/grafana:latest   # in prod: pin a version
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
-      # Anonimo read-only: cualquiera abre el dashboard sin login (ideal para mostrar en una entrevista).
+      # Anonymous read-only: anyone opens the dashboard without logging in (handy for showing it live).
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     volumes:

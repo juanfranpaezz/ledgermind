@@ -16,8 +16,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Reconciliacion contra el ledger real: el feed demo expone los tres descuadres, y un feed que coincide
- * con el ledger cuadra. Asi confirmamos la proyeccion asiento -> {@link LedgerEntry} y el servicio entero.
+ * Reconciliation against the real ledger: the demo feed exposes the three discrepancies, and a feed that matches
+ * the ledger balances. That confirms the posting -> {@link LedgerEntry} projection and the whole service.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",

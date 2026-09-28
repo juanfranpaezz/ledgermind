@@ -1,16 +1,16 @@
 package com.ledgermind.ledger;
 
 /**
- * Se reuso una {@code idempotency_key} para una operacion DISTINTA (parametros diferentes a la original).
+ * An {@code idempotency_key} was reused for a DIFFERENT operation (parameters different from the original).
  *
- * <p>Una idempotency-key identifica UNA operacion: reusarla con otro cuerpo es un error del cliente, no un
- * replay. Devolver el asiento original seria enganioso (el cliente creeria que se aplico SU pedido nuevo).
- * Se mapea a 409 Conflict. (Stripe usa 400 con {@code error_type=idempotency_error}; el principio es el mismo:
- * la clave esta ligada a la primera request y no se puede reutilizar para otra.)
+ * <p>An idempotency key identifies ONE operation: reusing it with another body is a client error, not a
+ * replay. Returning the original posting would be misleading (the client would believe ITS new request was applied).
+ * It maps to 409 Conflict. (Stripe uses 400 with {@code error_type=idempotency_error}; the principle is the same:
+ * the key is bound to the first request and cannot be reused for another.)
  */
 public class IdempotencyConflictException extends RuntimeException {
 
     public IdempotencyConflictException(String idempotencyKey) {
-        super("La idempotency-key '" + idempotencyKey + "' ya fue usada para una operacion distinta");
+        super("The idempotency-key '" + idempotencyKey + "' was already used for a different operation");
     }
 }

@@ -10,11 +10,11 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * Un asiento de doble entrada: un debito y un credito por el mismo importe.
+ * A double-entry posting: one debit and one credit for the same amount.
  *
- * <p>INMUTABLE: no tiene setters y sus columnas son {@code updatable = false}.
- * Una correccion es un asiento NUEVO con las cuentas invertidas (storno), nunca un UPDATE.
- * Referencia las cuentas por id (no {@code @ManyToOne}): un asiento es un hecho liviano.
+ * <p>IMMUTABLE: it has no setters and its columns are {@code updatable = false}.
+ * A correction is a NEW posting with the accounts reversed (storno), never an UPDATE.
+ * It references the accounts by id (not {@code @ManyToOne}): a posting is a lightweight fact.
  */
 @Entity
 @Table(name = "posting")
@@ -43,7 +43,7 @@ public class Posting {
     private Instant createdAt;
 
     protected Posting() {
-        // requerido por JPA
+        // required by JPA
     }
 
     public Posting(Long debitAccountId, Long creditAccountId, long amount, String asset, String idempotencyKey) {
@@ -88,8 +88,8 @@ public class Posting {
     }
 
     /**
-     * Identidad por CLAVE NATURAL (idempotency_key): unica, inmutable y asignada en construccion.
-     * No usamos el id IDENTITY (null antes de persistir, cambia despues).
+     * Identity by NATURAL KEY (idempotency_key): unique, immutable and assigned at construction.
+     * We do not use the IDENTITY id (null before persisting, changes afterwards).
      */
     @Override
     public boolean equals(Object o) {

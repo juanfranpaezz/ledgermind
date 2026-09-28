@@ -1,6 +1,6 @@
 package com.ledgermind.ledger;
 
-/** Orden de transferir {@code amount} centavos de una cuenta a otra, de forma idempotente. */
+/** An order to transfer {@code amount} cents from one account to another, idempotently. */
 public record TransferCommand(
         Long debitAccountId,
         Long creditAccountId,

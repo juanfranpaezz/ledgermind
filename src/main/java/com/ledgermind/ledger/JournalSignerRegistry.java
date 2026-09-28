@@ -7,24 +7,24 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 /**
- * Registro de algoritmos de firma del journal: el lado de VERIFICACION de la crypto-agility.
+ * Registry of journal signature algorithms: the VERIFICATION side of crypto-agility.
  *
- * <p>Por que existe: un checkpoint guarda el {@code algorithm} con el que fue firmado. Para verificar un
- * checkpoint hay que usar EL MISMO algoritmo, no el que el firmante activo use HOY. Sin este registro el
- * servicio solo podia verificar checkpoints firmados con el unico firmante inyectado: rotar de ML-DSA a
- * Ed25519 dejaba los checkpoints viejos imposibles de verificar (el KeyFactory equivocado tiraba un
- * {@link IllegalStateException} estructural). Esto completa la agility "hacia atras": cada checkpoint se
- * verifica con su propio esquema, soportando >1 algoritmo en paralelo.
+ * <p>Why it exists: a checkpoint stores the {@code algorithm} it was signed with. To verify a
+ * checkpoint you have to use THE SAME algorithm, not the one the active signer uses TODAY. Without this registry the
+ * service could only verify checkpoints signed with the single injected signer: rotating from ML-DSA to
+ * Ed25519 left the old checkpoints impossible to verify (the wrong KeyFactory threw a structural
+ * {@link IllegalStateException}). This completes the agility "backwards": every checkpoint is
+ * verified with its own scheme, supporting >1 algorithm in parallel.
  *
- * <p>La VERIFICACION no necesita clave privada: el algoritmo, la clave publica y la firma viajan en el
- * propio checkpoint. Por eso el registro indexa {@link JournalSigner} por {@link JournalSigner#algorithm()}
- * y al verificar SOLO usa su metodo {@code verify} — un firmante sin material privado (montado solo para
- * verificar un esquema retirado) encajaria igual si implementara la interfaz.
+ * <p>VERIFICATION needs no private key: the algorithm, the public key and the signature travel in the
+ * checkpoint itself. That is why the registry indexes {@link JournalSigner} by {@link JournalSigner#algorithm()}
+ * and when verifying ONLY uses its {@code verify} method — a signer without private material (mounted only to
+ * verify a retired scheme) would fit just as well if it implemented the interface.
  *
- * <p>Algoritmo DESCONOCIDO (no registrado): NO es evidencia de tamper. Es una falla estructural —
- * el verificador para ese esquema no esta desplegado— y debe fallar RUIDOSO ({@link IllegalStateException}),
- * coherente con la disciplina de {@code MlDsaJournalSigner.verify} (no disfrazar una causa ambiental de
- * "MANIPULACION DETECTADA"). Un veredicto de seguridad falso es peor que un error visible.
+ * <p>UNKNOWN algorithm (not registered): it is NOT evidence of tamper. It is a structural failure —
+ * the verifier for that scheme is not deployed — and it must fail LOUDLY ({@link IllegalStateException}),
+ * consistent with the discipline of {@code MlDsaJournalSigner.verify} (do not disguise an environmental cause as
+ * "TAMPER DETECTED"). A false security verdict is worse than a visible error.
  */
 @Component
 public class JournalSignerRegistry {
@@ -32,9 +32,9 @@ public class JournalSignerRegistry {
     private final Map<String, JournalSigner> byAlgorithm;
 
     /**
-     * Spring inyecta TODOS los beans {@link JournalSigner} del contexto. Se indexan por su
-     * {@link JournalSigner#algorithm()}; dos firmantes con el mismo nombre de algoritmo es un error de
-     * configuracion y falla al arrancar (no se elige uno en silencio).
+     * Spring injects ALL the {@link JournalSigner} beans in the context. They are indexed by their
+     * {@link JournalSigner#algorithm()}; two signers with the same algorithm name is a
+     * configuration error and fails at startup (one is not picked silently).
      */
     public JournalSignerRegistry(List<JournalSigner> signers) {
         this.byAlgorithm = signers.stream().collect(Collectors.toMap(
@@ -42,59 +42,59 @@ public class JournalSignerRegistry {
                 Function.identity(),
                 (a, b) -> {
                     throw new IllegalStateException(
-                            "Dos JournalSigner declaran el mismo algorithm() = '" + a.algorithm()
-                                    + "': " + a.getClass().getName() + " y " + b.getClass().getName());
+                            "Two JournalSigner beans declare the same algorithm() = '" + a.algorithm()
+                                    + "': " + a.getClass().getName() + " and " + b.getClass().getName());
                 }));
     }
 
     /**
-     * Verifica una firma despachando por el NOMBRE de algoritmo que el checkpoint registro.
+     * Verifies a signature by dispatching on the algorithm NAME the checkpoint recorded.
      *
-     * @param algorithm        nombre del algoritmo con el que se firmo (campo del checkpoint)
-     * @param data             bytes canonicos que se firmaron
-     * @param signatureBase64  firma en base64
-     * @param publicKeyBase64  clave publica (base64, X.509) que acompaña al checkpoint
-     * @return {@code true} si la firma cierra; {@code false} SOLO si la firma no verifica (tamper genuino)
-     * @throws IllegalStateException si el algoritmo no esta registrado (falla estructural, NO tamper)
+     * @param algorithm        name of the algorithm it was signed with (a checkpoint field)
+     * @param data             canonical bytes that were signed
+     * @param signatureBase64  signature in base64
+     * @param publicKeyBase64  public key (base64, X.509) that accompanies the checkpoint
+     * @return {@code true} if the signature checks out; {@code false} ONLY if the signature does not verify (genuine tamper)
+     * @throws IllegalStateException if the algorithm is not registered (structural failure, NOT tamper)
      */
     public boolean verify(String algorithm, byte[] data, String signatureBase64, String publicKeyBase64) {
         JournalSigner verifier = byAlgorithm.get(algorithm);
         if (verifier == null) {
-            // Algoritmo no soportado: NO podemos verificar. NO es evidencia criptografica de tamper ->
-            // fallamos ruidoso en vez de devolver un falso veredicto de seguridad.
-            throw new IllegalStateException("Algoritmo de firma desconocido/no registrado: '" + algorithm
-                    + "'. Algoritmos soportados: " + supportedAlgorithms()
-                    + ". (No se pudo verificar el checkpoint; esto NO es evidencia de manipulacion.)");
+            // Unsupported algorithm: we CANNOT verify. It is NOT cryptographic evidence of tamper ->
+            // we fail loudly instead of returning a false security verdict.
+            throw new IllegalStateException("Unknown/unregistered signature algorithm: '" + algorithm
+                    + "'. Supported algorithms: " + supportedAlgorithms()
+                    + ". (The checkpoint could not be verified; this is NOT evidence of tampering.)");
         }
         return verifier.verify(data, signatureBase64, publicKeyBase64);
     }
 
-    /** Algoritmos que este despliegue puede verificar (para diagnostico/observabilidad). */
+    /** Algorithms this deployment can verify (for diagnostics/observability). */
     public List<String> supportedAlgorithms() {
         return byAlgorithm.keySet().stream().sorted().toList();
     }
 
-    /** {@code true} si el despliegue tiene un verificador para ese algoritmo. */
+    /** {@code true} if the deployment has a verifier for that algorithm. */
     public boolean supports(String algorithm) {
         return byAlgorithm.containsKey(algorithm);
     }
 
     /**
-     * El firmante ACTIVO (el que firma los checkpoints NUEVOS), resuelto por nombre de algoritmo.
-     * Es el lado de FIRMA de la agility: rotar de esquema = cambiar este nombre por configuracion,
-     * sin tocar el dominio. Verificar sigue funcionando para TODOS los esquemas registrados, asi los
-     * checkpoints firmados con el esquema anterior se siguen auditando tras la rotacion.
+     * The ACTIVE signer (the one that signs NEW checkpoints), resolved by algorithm name.
+     * It is the SIGNING side of the agility: rotating schemes = changing this name by configuration,
+     * without touching the domain. Verification keeps working for ALL registered schemes, so
+     * checkpoints signed with the previous scheme are still audited after the rotation.
      *
-     * @throws IllegalStateException si el algoritmo activo configurado no tiene un firmante registrado
-     *                               (falla RUIDOSO en el primer intento de firmar — el primer tick del
-     *                               checkpoint — no firma en silencio con el esquema equivocado)
+     * @throws IllegalStateException if the configured active algorithm has no registered signer
+     *                               (fails LOUDLY on the first attempt to sign — the first checkpoint
+     *                               tick — it does not silently sign with the wrong scheme)
      */
     public JournalSigner activeSigner(String algorithm) {
         JournalSigner signer = byAlgorithm.get(algorithm);
         if (signer == null) {
-            throw new IllegalStateException("Algoritmo de firma ACTIVO no soportado: '" + algorithm
-                    + "'. Algoritmos disponibles: " + supportedAlgorithms()
-                    + ". Revisa la propiedad ledgermind.journal.signer.algorithm.");
+            throw new IllegalStateException("Unsupported ACTIVE signature algorithm: '" + algorithm
+                    + "'. Available algorithms: " + supportedAlgorithms()
+                    + ". Check the ledgermind.journal.signer.algorithm property.");
         }
         return signer;
     }

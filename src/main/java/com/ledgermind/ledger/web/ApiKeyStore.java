@@ -23,7 +23,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * API keys for {@code /api}, with the same convention as the owner's FastAPI service (ledgermind_api): the file named
+ * API keys for {@code /api}: the file named
  * by {@code LEDGERMIND_API_KEYS_FILE} holds one {@code <key_id> sha256:<64 lowercase hex>} line per key; blank lines
  * and {@code #} comments are skipped. Keys never live in the repository, only their SHA-256.
  *

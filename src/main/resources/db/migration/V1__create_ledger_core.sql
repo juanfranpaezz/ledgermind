@@ -1,41 +1,41 @@
 -- =====================================================================================
--- V1 — Núcleo del ledger de doble entrada.
+-- V1 — Core of the double-entry ledger.
 --
--- Principios de diseño (cada uno con su porqué):
---   1. Dinero como ENTEROS en minor units (centavos). NUNCA float/double.
---   2. Asientos INMUTABLES (append-only): nunca UPDATE ni DELETE sobre `posting`.
---      Una corrección es un asiento NUEVO con las cuentas invertidas (storno).
---   3. El saldo NO se guarda como un número con signo: se DERIVA de contadores
---      acumulados (estilo TigerBeetle). Anti-drift y anti-bug-de-signo.
---   4. Idempotencia a nivel de asiento via UNIQUE constraint.
---   5. Invariantes de dinero enforced EN LA BASE DE DATOS (segunda línea de defensa),
---      no solo en la app.
+-- Design principles (each one with its reason):
+--   1. Money as INTEGERS in minor units (cents). NEVER float/double.
+--   2. IMMUTABLE postings (append-only): never UPDATE or DELETE on `posting`.
+--      A correction is a NEW posting with the accounts reversed (storno).
+--   3. The balance is NOT stored as a signed number: it is DERIVED from accumulated
+--      counters (TigerBeetle style). Anti-drift and anti-sign-bug.
+--   4. Posting-level idempotency via a UNIQUE constraint.
+--   5. Money invariants enforced IN THE DATABASE (second line of defence),
+--      not only in the app.
 -- =====================================================================================
 
 -- -------------------------------------------------------------------------------------
--- account: una cuenta del ledger. Cada cuenta maneja UN solo asset/moneda.
+-- account: a ledger account. Every account holds ONE single asset/currency.
 -- -------------------------------------------------------------------------------------
 CREATE TABLE account (
     id               BIGINT       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
-    -- Dirección jerárquica legible (estilo plan de cuentas), en vez de UUIDs opacos.
-    -- Ej: 'wallet:user:juan', 'mp:settlement', 'external:funding'. Da namespacing gratis.
+    -- Readable hierarchical address (chart-of-accounts style), instead of opaque UUIDs.
+    -- E.g.: 'wallet:user:juan', 'mp:settlement', 'external:funding'. It gives namespacing for free.
     address          VARCHAR(128) NOT NULL UNIQUE,
 
-    -- Un account = un solo asset. NUNCA se suman monedas distintas en el mismo saldo.
+    -- One account = one single asset. Different currencies are NEVER added into the same balance.
     asset            VARCHAR(3)      NOT NULL,
 
-    -- Contadores acumulados en centavos. Monótonos crecientes (nunca decrecen).
-    -- 'posted'  = movimientos confirmados.
-    -- 'pending' = movimientos reservados pero no confirmados (two-phase / holds, ej.
-    --             una autorización de tarjeta). Por ahora quedan en 0; se usan más adelante.
+    -- Accumulated counters in cents. Monotonically increasing (they never decrease).
+    -- 'posted'  = confirmed movements.
+    -- 'pending' = movements reserved but not confirmed (two-phase / holds, e.g.
+    --             a card authorization). For now they stay at 0; they are used later.
     posted_debits    BIGINT       NOT NULL DEFAULT 0,
     posted_credits   BIGINT       NOT NULL DEFAULT 0,
     pending_debits   BIGINT       NOT NULL DEFAULT 0,
     pending_credits  BIGINT       NOT NULL DEFAULT 0,
 
-    -- Algunas cuentas (la fuente externa de fondos) PUEDEN quedar en negativo: son la
-    -- contrapartida contable del dinero que entra al sistema. Las wallets de usuario NO.
+    -- Some accounts (the external source of funds) CAN go negative: they are the
+    -- accounting counterpart of the money that enters the system. User wallets can NOT.
     allow_negative   BOOLEAN      NOT NULL DEFAULT FALSE,
 
     -- Optimistic locking de JPA (@Version): detecta y rechaza escrituras concurrentes perdidas.
@@ -44,24 +44,24 @@ CREATE TABLE account (
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
 
-    -- Los contadores jamás pueden ser negativos.
+    -- The counters can never be negative.
     CONSTRAINT account_counters_non_negative CHECK (
         posted_debits  >= 0 AND posted_credits  >= 0 AND
         pending_debits >= 0 AND pending_credits >= 0
     ),
 
-    -- INVARIANTE DE NO-SOBREGIRO (la pieza clave de seguridad bajo concurrencia):
-    -- saldo disponible = posted_credits - posted_debits - pending_debits.
-    -- Para una wallet (credit-normal) nunca puede ser negativo. La fuente externa se exime.
-    -- Aunque la app tuviera un bug de carrera, esta CHECK impide crear dinero de la nada.
+    -- NO-OVERDRAFT INVARIANT (the key safety piece under concurrency):
+    -- available balance = posted_credits - posted_debits - pending_debits.
+    -- For a wallet (credit-normal) it can never be negative. The external source is exempt.
+    -- Even if the app had a race bug, this CHECK prevents creating money out of thin air.
     CONSTRAINT account_no_overdraft CHECK (
         allow_negative OR (posted_credits - posted_debits - pending_debits >= 0)
     )
 );
 
 -- -------------------------------------------------------------------------------------
--- posting: el journal. Cada fila es UN asiento de doble entrada (un débito y un crédito
--- por el mismo importe). Tabla INMUTABLE: solo INSERT. Nunca UPDATE/DELETE.
+-- posting: the journal. Every row is ONE double-entry posting (one debit and one credit
+-- for the same amount). IMMUTABLE table: INSERT only. Never UPDATE/DELETE.
 -- -------------------------------------------------------------------------------------
 CREATE TABLE posting (
     id                 BIGINT       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -71,18 +71,18 @@ CREATE TABLE posting (
     amount             BIGINT       NOT NULL,
     asset              VARCHAR(3)      NOT NULL,
 
-    -- Idempotencia: el mismo idempotency_key no puede generar dos asientos.
-    -- Si llega un reintento con la misma clave, el INSERT choca contra esta UNIQUE.
+    -- Idempotency: the same idempotency_key cannot generate two postings.
+    -- If a retry arrives with the same key, the INSERT hits this UNIQUE.
     idempotency_key    VARCHAR(64)  NOT NULL UNIQUE,
 
     created_at         TIMESTAMPTZ  NOT NULL DEFAULT now(),
 
-    -- El importe siempre es positivo; la dirección la dan las dos cuentas.
+    -- The amount is always positive; the direction is given by the two accounts.
     CONSTRAINT posting_amount_positive   CHECK (amount > 0),
-    -- Un asiento no puede debitar y acreditar la misma cuenta (sería un no-op).
+    -- A posting cannot debit and credit the same account (it would be a no-op).
     CONSTRAINT posting_distinct_accounts CHECK (debit_account_id <> credit_account_id)
 );
 
--- Índices para reconstruir el historial / saldo de una cuenta (lo usará el read-model del MCP).
+-- Indexes to rebuild an account's history / balance (the MCP read-model will use them).
 CREATE INDEX idx_posting_debit_account  ON posting (debit_account_id);
 CREATE INDEX idx_posting_credit_account ON posting (credit_account_id);

@@ -34,7 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * generated at run time (only their SHA-256 lines are written, to a temp file outside the repository).
  *
  * <p>The window is set to one hour here ({@code ledgermind.rate-limit.window-ms=3600000}; production default 10 s) so a
- * slow, loaded machine cannot reset it in the middle of the test (gate r2, 2026-09-26: with the hard-coded 10 s window
+ * slow, loaded machine cannot reset it in the middle of the test (with the hard-coded 10 s window
  * the 31 calls spanned more than one window and the test failed under load). The limit stays at its default of 30,
  * and the counts are asserted exactly, so an off-by-one in the limiter goes red.
  *

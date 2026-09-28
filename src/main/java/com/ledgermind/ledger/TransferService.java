@@ -12,32 +12,32 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Aplica transferencias de dinero como asientos de doble entrada, seguras bajo concurrencia.
+ * Applies money transfers as double-entry postings, safe under concurrency.
  *
- * <p>Estrategia de concurrencia: OPTIMISTIC LOCKING + RETRY.
- * El bucle de reintento vive AFUERA de la transaccion: cada intento abre su propia transaccion
- * y re-lee las cuentas frescas. Si dos transferencias chocan sobre la misma cuenta, una falla al
- * commitear con {@link ObjectOptimisticLockingFailureException}; la atrapamos y reintentamos con
- * el estado ya actualizado. Asi es imposible gastar dos veces el mismo saldo.
+ * <p>Concurrency strategy: OPTIMISTIC LOCKING + RETRY.
+ * The retry loop lives OUTSIDE the transaction: every attempt opens its own transaction
+ * and re-reads fresh accounts. If two transfers collide on the same account, one fails at
+ * commit with {@link ObjectOptimisticLockingFailureException}; we catch it and retry with
+ * the already-updated state. That makes it impossible to spend the same balance twice.
  *
- * <p>Idempotencia EXACTLY-ONCE bajo concurrencia: el chequeo {@code findByIdempotencyKey} resuelve los
- * reintentos secuenciales, pero NO una carrera (dos requests con la misma clave ven la clave libre a la
- * vez). Para esa carrera, la {@code UNIQUE} de {@code idempotency_key} es la red real: cuando atrapa al
- * duplicado lanzamos {@link DataIntegrityViolationException}, y la convertimos en un REPLAY del asiento
- * ya commiteado (no en un 500). Asi un duplicado concurrente devuelve la respuesta original, igual que un
- * reintento secuencial.
+ * <p>EXACTLY-ONCE idempotency under concurrency: the {@code findByIdempotencyKey} check handles
+ * sequential retries, but NOT a race (two requests with the same key see the key free at the
+ * same time). For that race, the {@code UNIQUE} on {@code idempotency_key} is the real safety net: when it catches the
+ * duplicate we get a {@link DataIntegrityViolationException}, and we turn it into a REPLAY of the
+ * already-committed posting (not a 500). That way a concurrent duplicate returns the original response, just like a
+ * sequential retry.
  */
 @Service
 public class TransferService {
 
-    /** Cuantas veces reintentamos una transferencia que pierde la carrera antes de rendirnos. */
+    /** How many times we retry a transfer that loses the race before giving up. */
     private static final int MAX_ATTEMPTS = 5;
 
     private final AccountRepository accounts;
     private final PostingRepository postings;
     private final OverdraftSweeper freezes;
     private final TransactionTemplate tx;
-    /** Reintentos acumulados por conflicto transitorio. Observable para que un test afirme que hubo contencion real. */
+    /** Accumulated retries on transient conflicts. Observable so that a test can assert there was real contention. */
     private final AtomicLong retries = new AtomicLong(0);
 
     public TransferService(AccountRepository accounts,
@@ -48,15 +48,15 @@ public class TransferService {
         this.accounts = accounts;
         this.postings = postings;
         this.freezes = freezes;
-        // Transacciones programaticas: necesitamos controlar el limite transaccional a mano
-        // para que el retry quede AFUERA (cada intento = transaccion nueva).
+        // Programmatic transactions: we need to control the transactional boundary by hand
+        // so that the retry stays OUTSIDE (every attempt = a new transaction).
         this.tx = new TransactionTemplate(txManager);
-        // Exponemos los reintentos como gauge de Micrometer: es la PRESION DE CONCURRENCIA observable
-        // en Prometheus/Grafana. Sube cuando dos transferencias chocan sobre la misma cuenta (optimistic
-        // lock perdido) o se deadlockean (40P01). Es el MISMO contador que el spike de concurrencia afirma
-        // > 0; aca ademas sirve como telemetria operativa (no es un hook de test acoplado).
+        // We expose the retries as a Micrometer gauge: it is the observable CONCURRENCY PRESSURE
+        // in Prometheus/Grafana. It rises when two transfers collide on the same account (lost optimistic
+        // lock) or deadlock (40P01). It is the SAME counter the concurrency spike asserts is
+        // > 0; here it also serves as operational telemetry (it is not a coupled test hook).
         Gauge.builder("ledgermind.transfer.retries", retries, AtomicLong::get)
-                .description("Reintentos acumulados de transferencia por conflicto transitorio (optimistic lock o deadlock)")
+                .description("Accumulated transfer retries on transient conflicts (optimistic lock or deadlock)")
                 .register(meterRegistry);
     }
 
@@ -65,23 +65,23 @@ public class TransferService {
             try {
                 return tx.execute(status -> apply(cmd));
             } catch (ConcurrencyFailureException conflict) {
-                // Conflicto TRANSITORIO de concurrencia. Cubre AMBOS casos reintentables, que extienden
-                // ConcurrencyFailureException: (1) el optimista por @Version
-                // ({@link ObjectOptimisticLockingFailureException}) cuando dos transferencias chocan sobre
-                // la misma cuenta; y (2) el DEADLOCK de Postgres (40P01 -> CannotAcquireLockException) cuando
-                // dos transferencias opuestas (A->B y B->A) lockean las filas en orden inverso. Antes solo se
-                // atrapaba el optimista y el deadlock escapaba como 500 pese a ser perfectamente reintentable.
-                // La transaccion se revirtio entera (no escribimos nada). Reintentamos desde cero.
+                // TRANSIENT concurrency conflict. It covers BOTH retryable cases, which extend
+                // ConcurrencyFailureException: (1) the @Version optimistic conflict
+                // ({@link ObjectOptimisticLockingFailureException}) when two transfers collide on
+                // the same account; and (2) the Postgres DEADLOCK (40P01 -> CannotAcquireLockException) when
+                // two opposite transfers (A->B and B->A) lock the rows in reverse order. Before, only the
+                // optimistic conflict was caught and the deadlock escaped as a 500 even though it is perfectly retryable.
+                // The transaction was rolled back entirely (we wrote nothing). We retry from scratch.
                 retries.incrementAndGet();
                 if (attempt >= MAX_ATTEMPTS) {
                     throw new TransferConflictException(attempt);
                 }
-                backoffBeforeRetry(attempt);   // backoff exponencial + jitter: corta el thundering herd
+                backoffBeforeRetry(attempt);   // exponential backoff + jitter: breaks the thundering herd
             } catch (DataIntegrityViolationException duplicate) {
-                // Carrera de IDEMPOTENCIA: otro request con la misma clave inserto primero y chocamos con
-                // la UNIQUE. La operacion YA quedo aplicada exactamente una vez -> devolvemos ese asiento
-                // (replay), no un error. Si la violacion fuese de OTRA constraint, no habra asiento con
-                // esta clave y re-lanzamos la excepcion original.
+                // IDEMPOTENCY race: another request with the same key inserted first and we hit
+                // the UNIQUE. The operation WAS already applied exactly once -> we return that posting
+                // (replay), not an error. If the violation came from ANOTHER constraint, there will be no posting with
+                // this key and we rethrow the original exception.
                 Posting existing = postings.findByIdempotencyKey(cmd.idempotencyKey())
                         .orElseThrow(() -> duplicate);
                 return replayOrConflict(existing, cmd);
@@ -89,16 +89,16 @@ public class TransferService {
         }
     }
 
-    /** Reintentos acumulados por conflicto transitorio (optimista o deadlock). Lo usa el spike de concurrencia
-     *  para afirmar que la contencion realmente se ejercito (un test que pasa sin un solo retry no prueba nada). */
+    /** Accumulated retries on transient conflicts (optimistic or deadlock). The concurrency spike uses it
+     *  to assert that contention was really exercised (a test that passes without a single retry proves nothing). */
     public long retryCount() {
         return retries.get();
     }
 
     /**
-     * Backoff exponencial ACOTADO + jitter antes de reintentar. Sin esto, bajo alta contencion los N perdedores
-     * recompiten en lockstep (thundering herd) y transferencias con saldo pueden agotar los reintentos y fallar
-     * con 409 aunque habia fondos. El tope (20 ms) mantiene la latencia y los tests acotados.
+     * BOUNDED exponential backoff + jitter before retrying. Without it, under high contention the N losers
+     * compete again in lockstep (thundering herd) and transfers with enough balance can exhaust the retries and fail
+     * with 409 even though there were funds. The cap (20 ms) keeps latency and the tests bounded.
      */
     private static void backoffBeforeRetry(int attempt) {
         long base = Math.min(20L, 1L << (attempt - 1));                        // 1,2,4,8,16 -> tope 20 ms
@@ -112,9 +112,9 @@ public class TransferService {
     }
 
     /**
-     * Una idempotency-key identifica UNA operacion. Si el asiento que ya existe coincide con el pedido,
-     * es un REPLAY legitimo (mismo resultado). Si los parametros DIFIEREN, el cliente reuso la clave para
-     * otra cosa: devolver el original lo enganiaria, asi que lanzamos {@link IdempotencyConflictException}.
+     * An idempotency key identifies ONE operation. If the posting that already exists matches the request,
+     * it is a legitimate REPLAY (same result). If the parameters DIFFER, the client reused the key for
+     * something else: returning the original would mislead it, so we throw {@link IdempotencyConflictException}.
      */
     private Posting replayOrConflict(Posting existing, TransferCommand cmd) {
         boolean sameOperation = existing.getDebitAccountId().equals(cmd.debitAccountId())
@@ -126,49 +126,49 @@ public class TransferService {
         throw new IdempotencyConflictException(cmd.idempotencyKey());
     }
 
-    /** Un intento. Corre dentro de UNA transaccion. Aca viven los invariantes del ledger. */
+    /** One attempt. Runs inside ONE transaction. The ledger's invariants live here. */
     private Posting apply(TransferCommand cmd) {
-        // 1) Idempotencia: si ya existe un asiento con esta clave, es un replay (mismos params) o un
-        //    conflicto (la clave se reuso para otra operacion). No duplicamos en ningun caso.
+        // 1) Idempotency: if a posting with this key already exists, it is a replay (same params) or a
+        //    conflict (the key was reused for another operation). We never duplicate.
         var existing = postings.findByIdempotencyKey(cmd.idempotencyKey());
         if (existing.isPresent()) {
             return replayOrConflict(existing.get(), cmd);
         }
 
-        // 1.5) Invariante: una transferencia mueve dinero ENTRE dos cuentas DISTINTAS. Validarlo en Java
-        //      (ademas del CHECK posting_distinct_accounts en la DB) lo clasifica como un 400 limpio, no como
-        //      un 500 opaco por la violacion del CHECK que se colaria por el catch de idempotencia.
+        // 1.5) Invariant: a transfer moves money BETWEEN two DIFFERENT accounts. Validating it in Java
+        //      (besides the posting_distinct_accounts CHECK in the DB) classifies it as a clean 400, not as
+        //      an opaque 500 from the CHECK violation that would slip through the idempotency catch.
         if (cmd.debitAccountId().equals(cmd.creditAccountId())) {
-            throw new IllegalArgumentException("No se puede transferir una cuenta a si misma.");
+            throw new IllegalArgumentException("An account cannot transfer to itself.");
         }
-        // Congelamiento por sobregiro (dec-151): UNA lectura indexada, sin re-derivar saldos en el camino caliente.
+        // Overdraft freeze: ONE indexed read, no balance re-derivation on the hot path.
         freezes.assertNotFrozen(cmd.debitAccountId(), cmd.creditAccountId());
 
-        // 2) Cargamos las dos cuentas. Son entidades 'managed': sus cambios se flushean al commit
-        //    con el chequeo de version (optimistic locking).
+        // 2) We load both accounts. They are 'managed' entities: their changes are flushed at commit
+        //    with the version check (optimistic locking).
         Account debit = accounts.findById(cmd.debitAccountId())
                 .orElseThrow(() -> new AccountNotFoundException(cmd.debitAccountId()));
         Account credit = accounts.findById(cmd.creditAccountId())
                 .orElseThrow(() -> new AccountNotFoundException(cmd.creditAccountId()));
 
-        // 3) Invariantes de negocio (ademas de los CHECK en la DB: segunda linea de defensa).
+        // 3) Business invariants (besides the CHECKs in the DB: second line of defence).
         if (!debit.getAsset().equals(credit.getAsset())) {
-            throw new IllegalArgumentException("No se puede transferir entre assets distintos");
+            throw new IllegalArgumentException("Cannot transfer between different assets");
         }
         if (!debit.isAllowNegative() && debit.availableBalance() < cmd.amount()) {
             throw new InsufficientFundsException(debit.getId(), debit.availableBalance(), cmd.amount());
         }
 
-        // 4) Doble entrada: debito una cuenta y acredito la otra por el mismo importe.
+        // 4) Double entry: debit one account and credit the other by the same amount.
         debit.applyDebit(cmd.amount());
         credit.applyCredit(cmd.amount());
 
-        // 5) Registramos el asiento inmutable. La UNIQUE de idempotency_key es la red real contra duplicados.
+        // 5) We record the immutable posting. The UNIQUE on idempotency_key is the real net against duplicates.
         Posting posting = new Posting(debit.getId(), credit.getId(), cmd.amount(), debit.getAsset(),
                 cmd.idempotencyKey());
         return postings.save(posting);
-        // Al cerrar la transaccion, JPA emite por cada cuenta:
+        // When the transaction closes, JPA issues for each account:
         //   UPDATE account SET ..., version = version + 1 WHERE id = ? AND version = ?
-        // Si otra transaccion ya la cambio -> 0 filas -> ObjectOptimisticLockingFailureException -> retry.
+        // If another transaction already changed it -> 0 rows -> ObjectOptimisticLockingFailureException -> retry.
     }
 }

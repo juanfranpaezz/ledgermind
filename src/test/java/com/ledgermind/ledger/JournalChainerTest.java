@@ -12,8 +12,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Hash-chain del journal: encadena los asientos y DETECTA si alguien editó uno ya encadenado.
- * Se desactiva el job programado (delay enorme) para que el encadenado del test sea determinista.
+ * Journal hash-chain: it chains the postings and DETECTS whether someone edited one that was already chained.
+ * The scheduled job is disabled (huge delay) so that the test's chaining is deterministic.
  */
 @SpringBootTest(properties = "ledgermind.journal.chain-delay-ms=3600000")
 @Testcontainers
@@ -39,16 +39,16 @@ class JournalChainerTest {
         Posting t1 = ledger.transfer("wallet:a", "wallet:b", 30_000, "t-1");
         ledger.transfer("wallet:a", "wallet:b", 20_000, "t-2");
 
-        // --- encadenar y verificar: cadena intacta ---
+        // --- chain and verify: chain intact ---
         chainer.chainPendingPostings();
         JournalChainer.VerifyResult ok = chainer.verify();
         assertThat(ok.intact()).isTrue();
         assertThat(ok.chainedCount()).isEqualTo(3);   // seed + t-1 + t-2
 
-        // --- TAMPER: editar el amount de un asiento ya encadenado (ataque con acceso directo a la DB) ---
+        // --- TAMPER: edit the amount of an already-chained posting (attack with direct DB access) ---
         jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", t1.getId());
 
-        // --- verificar de nuevo: la cadena se rompe en el asiento alterado ---
+        // --- verify again: the chain breaks at the altered posting ---
         JournalChainer.VerifyResult broken = chainer.verify();
         assertThat(broken.intact()).isFalse();
         assertThat(broken.brokenAtSeq()).isNotNull();

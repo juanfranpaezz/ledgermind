@@ -19,7 +19,7 @@ jobs:
           java-version: '21'
           cache: maven
 
-      # Corre el build completo + tests. Testcontainers usa el Docker del runner de GitHub.
+      # Runs the full build + tests. Testcontainers uses the GitHub runner's Docker.
       - name: Build and test
         run: |
           chmod +x ./mvnw

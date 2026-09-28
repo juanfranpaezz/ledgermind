@@ -11,21 +11,21 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 /**
- * Tools MCP de OPERADOR (scope {@code ledger.admin}), separadas de {@link LedgerMcpTools} que es de solo lectura.
- * No mueven dinero: listan y levantan congelamientos por sobregiro. Quien descongela se toma del token autenticado,
- * no de un parametro que el agente pueda inventar.
+ * OPERATOR MCP tools (scope {@code ledger.admin}), separate from {@link LedgerMcpTools}, which is read-only.
+ * They move no money: they list and lift overdraft freezes. Who unfreezes is taken from the authenticated token,
+ * not from a parameter the agent could make up.
  */
 @Service
 public class LedgerAdminMcpTools {
 
-    static final String DETECTION_WINDOW = "Un sobregiro se detecta dentro de <= intervalo del barrido"
-            + " (ledgermind.overdraft.sweep-delay-ms, 10 s por defecto) + lo que dure el barrido, y entonces la cuenta"
-            + " queda congelada; cada cuenta tocada por un asiento nuevo se re-deriva desde TODOS sus asientos."
-            + " NO DETECTA: la edicion de un asiento ya barrido (anterior a la marca de agua) hasta que la cuenta"
-            + " recibe un asiento nuevo; un asiento insertado por fuera con id POR DEBAJO de la marca de agua (p.ej."
-            + " -1 con OVERRIDING SYSTEM VALUE) en una cuenta que no vuelve a moverse; y no previene la primera"
-            + " transferencia posterior a la manipulacion (congela despues). En la demo el token solo lleva"
-            + " ledger.read: este tool (scope ledger.admin) no se puede usar ahi.";
+    static final String DETECTION_WINDOW = "An overdraft is detected within <= the sweep interval"
+            + " (ledgermind.overdraft.sweep-delay-ms, 10 s by default) + however long the sweep takes, and then the account"
+            + " is frozen; every account touched by a new posting is re-derived from ALL its postings."
+            + " DOES NOT DETECT: the edit of an already-swept posting (before the watermark) until the account"
+            + " receives a new posting; a posting inserted outside the app with an id BELOW the watermark (e.g."
+            + " -1 with OVERRIDING SYSTEM VALUE) on an account that never moves again; and it does not prevent the first"
+            + " transfer after the tampering (it freezes afterwards). In the demo the token only carries"
+            + " ledger.read: this tool (scope ledger.admin) cannot be used there.";
 
     private final OverdraftSweeper sweeper;
 
@@ -35,26 +35,26 @@ public class LedgerAdminMcpTools {
 
     @PreAuthorize("hasAuthority('SCOPE_ledger.admin')")
     @Tool(name = "list_frozen_accounts",
-            description = "Lista las cuentas CONGELADAS por el barrido de sobregiro, con la evidencia: saldo derivado"
-                    + " del journal vs saldo guardado y el rango de asientos. " + DETECTION_WINDOW)
+            description = "Lists the accounts FROZEN by the overdraft sweep, with the evidence: balance derived"
+                    + " from the journal vs stored balance and the range of postings. " + DETECTION_WINDOW)
     public List<OverdraftFlag> listFrozenAccounts() {
         return sweeper.activeFlags();
     }
 
     @PreAuthorize("hasAuthority('SCOPE_ledger.admin')")
     @Tool(name = "unfreeze_account",
-            description = "Descongela una cuenta marcada por sobregiro. Registra QUIEN (el sujeto del token) y POR QUE."
-                    + " Si el saldo derivado sigue violando la regla, el proximo asiento que la toque la vuelve a"
-                    + " congelar. " + DETECTION_WINDOW)
+            description = "Unfreezes an account flagged for overdraft. Records WHO (the token's subject) and WHY."
+                    + " If the derived balance still violates the rule, the next posting that touches it freezes it"
+                    + " again. " + DETECTION_WINDOW)
     public String unfreezeAccount(
-            @ToolParam(description = "Direccion de la cuenta, ej. 'wallet:juan'") String address,
-            @ToolParam(description = "Motivo del descongelamiento (obligatorio, queda registrado)") String reason) {
+            @ToolParam(description = "Account address, e.g. 'wallet:juan'") String address,
+            @ToolParam(description = "Reason for the unfreeze (mandatory, it is recorded)") String reason) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || auth.getName() == null || auth.getName().isBlank()) {
-            throw new IllegalStateException("unfreeze_account exige un llamador autenticado.");
+            throw new IllegalStateException("unfreeze_account requires an authenticated caller.");
         }
         int cleared = sweeper.unfreeze(address, auth.getName(), reason);
-        return cleared == 0 ? "La cuenta " + address + " no tenia un congelamiento activo."
-                : "Cuenta " + address + " descongelada por " + auth.getName() + ".";
+        return cleared == 0 ? "Account " + address + " had no active freeze."
+                : "Account " + address + " unfrozen by " + auth.getName() + ".";
     }
 }

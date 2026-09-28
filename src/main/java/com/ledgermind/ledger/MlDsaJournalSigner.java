@@ -17,17 +17,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * Firmante ML-DSA-65 (FIPS 204, post-cuantico) via BouncyCastle.
+ * ML-DSA-65 signer (FIPS 204, post-quantum) via BouncyCastle.
  *
- * <p>La clave es EFIMERA (se genera al arranque) -> es una DEMOSTRACION de capacidad, no compliance.
- * En produccion la clave privada vive en un HSM/KMS y nunca toca el proceso, y la clave PUBLICA se
- * ancla FUERA de la DB (pinneada/log de transparencia). La clave publica viaja con cada checkpoint por
- * conveniencia de verificacion, pero por si sola da integridad-de-mensaje, NO autenticidad del firmante:
- * quien pueda reescribir la fila puede sustituir (clave, firma) por un par propio. El ancla externa es
- * lo que convierte la firma en no-repudio operativo.
+ * <p>The key is EPHEMERAL (generated at startup) -> it is a DEMONSTRATION of capability, not compliance.
+ * In production the private key lives in an HSM/KMS and never touches the process, and the PUBLIC key is
+ * anchored OUTSIDE the DB (pinned/transparency log). The public key travels with every checkpoint for
+ * verification convenience, but on its own it gives message integrity, NOT the signer's authenticity:
+ * whoever can rewrite the row can replace (key, signature) with a pair of their own. The external anchor is
+ * what turns the signature into operational non-repudiation.
  *
- * <p>Amenaza que mitiga (con ese ancla): "forge-later" (un adversario con computadora cuantica futura
- * forjando una firma sobre un journal reescrito). NO es "harvest-now-decrypt-later": esto firma, no cifra.
+ * <p>Threat it mitigates (with that anchor): "forge-later" (an adversary with a future quantum computer
+ * forging a signature over a rewritten journal). It is NOT "harvest-now-decrypt-later": this signs, it does not encrypt.
  */
 @Component
 public class MlDsaJournalSigner implements JournalSigner {
@@ -47,7 +47,7 @@ public class MlDsaJournalSigner implements JournalSigner {
             generator.initialize(MLDSAParameterSpec.ml_dsa_65);
             this.keyPair = generator.generateKeyPair();
         } catch (Exception e) {
-            throw new IllegalStateException("No se pudo inicializar el firmante ML-DSA", e);
+            throw new IllegalStateException("Could not initialize the ML-DSA signer", e);
         }
     }
 
@@ -69,21 +69,20 @@ public class MlDsaJournalSigner implements JournalSigner {
             signature.update(data);
             return Base64.getEncoder().encodeToString(signature.sign());
         } catch (Exception e) {
-            throw new IllegalStateException("Error firmando con ML-DSA", e);
+            throw new IllegalStateException("Error signing with ML-DSA", e);
         }
     }
 
     /**
-     * Verifica la firma. CLAVE: distingue dos estados que NO son lo mismo y conflacionarlos borra informacion
-     * de seguridad:
+     * Verifies the signature. KEY POINT: it tells apart two states that are NOT the same, and conflating them erases security
+     * information:
      * <ul>
-     *   <li><b>La firma no cierra</b> ({@link SignatureException}, o {@code verify} devuelve false): esto SI es
-     *       evidencia de manipulacion -> {@code false}. Es el unico caso que justifica un {@code false}.</li>
-     *   <li><b>No se pudo verificar</b> por causa estructural/ambiental (Base64 corrupto, clave X.509 invalida,
-     *       provider 'BC' ausente): NO es evidencia criptografica de tamper. Antes un {@code catch(Exception)}
-     *       lo disfrazaba de "firma invalida" -> {@code audit()} gritaba un falso "MANIPULACION DETECTADA".
-     *       Ahora falla RUIDOSO ({@link IllegalStateException}) en vez de mentir un veredicto de seguridad.</li>
-     * </ul>
+     *   <li><b>The signature does not check out</b> ({@link SignatureException}, or {@code verify} returns false): this IS
+     *       evidence of tampering -> {@code false}. It is the only case that justifies a {@code false}.</li>
+     *   <li><b>It could not be verified</b> for a structural/environmental reason (corrupt Base64, invalid X.509 key,
+     *       'BC' provider missing): it is NOT cryptographic evidence of tamper. A {@code catch(Exception)} used to
+     *       disguise it as an "invalid signature" -> {@code audit()} shouted a false "TAMPER DETECTED".
+     *       Now it fails LOUDLY ({@link IllegalStateException}) instead of lying with a security verdict.</li>
      */
     @Override
     public boolean verify(byte[] data, String signatureBase64, String publicKeyBase64) {
@@ -96,14 +95,14 @@ public class MlDsaJournalSigner implements JournalSigner {
             signature.update(data);
             return signature.verify(Base64.getDecoder().decode(signatureBase64));
         } catch (SignatureException badSignature) {
-            // La firma no verifica bajo la clave provista: tamper genuino. Unico caso que da false.
-            log.warn("Firma ML-DSA invalida: la firma no cierra bajo la clave provista", badSignature);
+            // The signature does not verify under the provided key: genuine tamper. The only case that gives false.
+            log.warn("Invalid ML-DSA signature: the signature does not check out under the provided key", badSignature);
             return false;
         } catch (GeneralSecurityException | IllegalArgumentException structural) {
-            // Base64 corrupto / clave X.509 invalida / provider ausente: NO pudimos verificar. No lo
-            // disfrazamos de tamper -> fallamos ruidoso para no emitir un veredicto de seguridad falso.
+            // Corrupt Base64 / invalid X.509 key / missing provider: we COULD NOT verify. We do not
+            // disguise it as tamper -> we fail loudly so as not to issue a false security verdict.
             throw new IllegalStateException(
-                    "No se pudo verificar la firma ML-DSA (causa estructural, no evidencia de tamper)", structural);
+                    "Could not verify the ML-DSA signature (structural cause, not evidence of tamper)", structural);
         }
     }
 }

@@ -14,7 +14,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * Deleting a chained, checkpoint-covered MIDDLE posting is tamper, even when the attacker also deletes its hash row and
- * puts the two account counters back (gate r2, 2026-09-26: no artifact test pinned deletion; a verify() that recomputed
+ * puts the two account counters back (no earlier test pinned deletion; a verify() that recomputed
  * each link from its own stored prev_hash kept JournalChainerTest green).
  *
  * <p>What catches it is the chain linkage: the next link's stored prev_hash is the deleted link's hash, not the hash
@@ -25,7 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * deleted one. Scheduled jobs are disabled (huge delays) so chaining and checkpointing are driven by the test.
  *
  * <p>Also pinned here, same fixture: an edit of a chained posting in the tail AFTER the last checkpoint is still
- * tamper when the editor does not recompute the links (README:23 and :213 wording, docs-truth gate r3).
+ * tamper when the editor does not recompute the links (as the README states).
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",
@@ -90,12 +90,12 @@ class JournalChainDeletionTamperTest {
         assertThat(tampered.chainIntact()).isFalse();
         assertThat(tampered.brokenAtSeq()).isEqualTo(lastSeq);
         assertThat(tampered.tamperDetected()).isTrue();
-        assertThat(tampered.verdict()).contains("MANIPULACION DETECTADA");
+        assertThat(tampered.verdict()).contains("TAMPER DETECTED");
     }
 
     /**
      * The stored prev_hash is compared too, not only recomputed: an edit of ONLY posting_hash.prev_hash of a covered
-     * middle link is tamper at that link (correctness gate r3: removing that comparison kept every other test green).
+     * middle link is tamper at that link (removing that comparison kept every other test green).
      */
     @Test
     void editing_only_the_stored_prev_hash_of_a_covered_middle_link_is_tamper() {

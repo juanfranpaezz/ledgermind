@@ -6,9 +6,9 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
 /**
- * Prueba de RUNTIME del segundo firmante (Ed25519/EdDSA via BouncyCastle): que firme y verifique de
- * verdad (compilar solo prueba que los simbolos existen). No necesita Spring ni Postgres. Es el esquema
- * que demuestra que la crypto-agility soporta >1 algoritmo, no solo ML-DSA.
+ * RUNTIME test of the second signer (Ed25519/EdDSA via BouncyCastle): that it really signs and
+ * verifies (compiling only proves the symbols exist). It needs neither Spring nor Postgres. It is the scheme
+ * that shows crypto-agility supports >1 algorithm, not just ML-DSA.
  */
 class Ed25519JournalSignerTest {
 
@@ -36,8 +36,8 @@ class Ed25519JournalSignerTest {
     void rechaza_una_clave_publica_ajena() {
         byte[] data = "head:abc123".getBytes(StandardCharsets.UTF_8);
         String sig = signer.sign(data);
-        Ed25519JournalSigner otro = new Ed25519JournalSigner();
+        Ed25519JournalSigner other = new Ed25519JournalSigner();
 
-        assertThat(signer.verify(data, sig, otro.publicKeyBase64())).isFalse();
+        assertThat(signer.verify(data, sig, other.publicKeyBase64())).isFalse();
     }
 }

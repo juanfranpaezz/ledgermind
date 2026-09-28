@@ -20,7 +20,7 @@ import org.springframework.security.web.authentication.AnonymousAuthenticationFi
  * anonymous set is empty.
  *
  * <p>Outside the {@code demo} profile this chain also matches the actuator {@code prometheus} endpoint, so metrics need
- * an X-API-Key there (security gate r3, A2). Under {@code demo} they stay anonymous for the bundled observability stack.
+ * an X-API-Key there. Under {@code demo} they stay anonymous for the bundled observability stack.
  *
  * <p>Order 0: before the {@code /mcp} chain (1, disjoint matcher) and before the catch-all default chain (2), which
  * keeps serving the static page and the rest of the actuator.

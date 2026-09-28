@@ -1,23 +1,23 @@
-# --- Build stage: compila y empaqueta el jar ejecutable ---
+# --- Build stage: compiles and packages the executable jar ---
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /app
 COPY . .
 RUN mvn -B -ntp -DskipTests clean package
 
-# --- Run stage: solo el JRE + el jar ---
+# --- Run stage: only the JRE + the jar ---
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /app/target/ledgermind-*.jar app.jar
-# Un ledger de pagos vive en UTC (coherente con TimeZone.setDefault(UTC) en main()).
+# A payments ledger lives in UTC (consistent with TimeZone.setDefault(UTC) in main()).
 ENV TZ=UTC
 ENV JAVA_TOOL_OPTIONS="-Duser.timezone=UTC"
-# REQUIERE LEDGERMIND_API_KEYS_FILE: sin esa variable (o con un archivo inexistente o mal formado) el proceso sale
-# con 1 (fail-closed). La imagen no trae ningun archivo de claves, a proposito; montalo en runtime, p. ej.
-#   -v /ruta/api-keys.txt:/run/ledgermind/api-keys:ro -e LEDGERMIND_API_KEYS_FILE=/run/ledgermind/api-keys
-# (un archivo vacio = solo los cinco endpoints anonimos /api/demo/*; cualquier otro /api da 401).
-# Con eso, esta imagen es la demo navegable que anuncia el README: el perfil 'demo' carga el escenario de
-# auditor (DemoSupportController) y el Authorization Server embebido. Default explicito y overridable
-# en runtime con -e SPRING_PROFILES_ACTIVE=... (un artefacto se valida por su comportamiento, no por compilar).
+# REQUIRES LEDGERMIND_API_KEYS_FILE: without that variable (or with a missing or malformed file) the process exits
+# with 1 (fail-closed). The image ships no key file, on purpose; mount it at runtime, e.g.
+#   -v /path/api-keys.txt:/run/ledgermind/api-keys:ro -e LEDGERMIND_API_KEYS_FILE=/run/ledgermind/api-keys
+# (an empty file = only the five anonymous /api/demo/* endpoints; any other /api call gets 401).
+# With that, this image is the browsable demo the README announces: the 'demo' profile loads the auditor
+# scenario (DemoSupportController) and the embedded Authorization Server. Explicit default, overridable
+# at runtime with -e SPRING_PROFILES_ACTIVE=... (an artifact is validated by its behaviour, not by compiling).
 ENV SPRING_PROFILES_ACTIVE=demo
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

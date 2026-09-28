@@ -7,8 +7,8 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Matcher de reconciliacion: cuadra cuando feed y ledger coinciden, y clasifica los tres descuadres
- * (importe distinto, falta en el ledger, falta en el feed). Logica pura -> sin Spring ni Postgres.
+ * Reconciliation matcher: it balances when feed and ledger match, and classifies the three discrepancies
+ * (different amount, missing in the ledger, missing in the feed). Pure logic -> no Spring or Postgres.
  */
 class ReconciliationMatcherTest {
 
@@ -30,19 +30,19 @@ class ReconciliationMatcherTest {
         assertThat(report.matched()).isEqualTo(2);
         assertThat(report.discrepancies()).isEmpty();
         assertThat(report.difference()).isZero();
-        assertThat(report.summary()).contains("Conciliado");
+        assertThat(report.summary()).contains("Reconciled");
     }
 
     @Test
     void detecta_los_tres_tipos_de_descuadre() {
         List<SettlementRecord> feed = List.of(
-                new SettlementRecord("ref-1", 1000, T),   // cuadra
-                new SettlementRecord("ref-2", 2000, T),   // mismatch: el ledger tiene 1961 (39 de comision)
-                new SettlementRecord("ref-3", 500, T));    // falta en el ledger
+                new SettlementRecord("ref-1", 1000, T),   // balances
+                new SettlementRecord("ref-2", 2000, T),   // mismatch: the ledger has 1961 (39 of fee)
+                new SettlementRecord("ref-3", 500, T));    // missing in the ledger
         List<LedgerEntry> ledger = List.of(
                 new LedgerEntry("ref-1", 1000),
                 new LedgerEntry("ref-2", 1961),
-                new LedgerEntry("ref-4", 700));            // falta en el feed
+                new LedgerEntry("ref-4", 700));            // missing in the feed
 
         ReconciliationReport report = matcher.reconcile(feed, ledger);
 
@@ -58,12 +58,12 @@ class ReconciliationMatcherTest {
         assertThat(mismatch.ref()).isEqualTo("ref-2");
         assertThat(mismatch.feedAmount()).isEqualTo(2000);
         assertThat(mismatch.ledgerAmount()).isEqualTo(1961);
-        assertThat(report.summary()).contains("Descuadre");
+        assertThat(report.summary()).contains("Mismatch");
     }
 
     @Test
     void refs_duplicadas_en_el_feed_se_agregan_y_no_cuadran_falsamente() {
-        // El PSP liquida la MISMA orden en dos tramos (split) que suman MAS que el asiento.
+        // The PSP settles the SAME order in two parts (split) that add up to MORE than the posting.
         List<SettlementRecord> feed = List.of(
                 new SettlementRecord("ref-1", 600, T),
                 new SettlementRecord("ref-1", 600, T));
@@ -73,7 +73,7 @@ class ReconciliationMatcherTest {
 
         assertThat(report.feedTotal()).isEqualTo(1200);          // 600 + 600 agregados
         assertThat(report.difference()).isEqualTo(200);          // 1200 vs 1000
-        assertThat(report.balanced()).isFalse();                 // NO puede cantar "conciliado"
+        assertThat(report.balanced()).isFalse();                 // it cannot report "reconciled"
         assertThat(report.discrepancies()).extracting(Discrepancy::type)
                 .containsExactly(Discrepancy.Type.AMOUNT_MISMATCH);
     }

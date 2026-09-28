@@ -13,9 +13,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Andamiaje de la demo visual (perfil 'demo'): {@code reset} deja una cadena firmada e integra;
- * {@code tamper} la rompe y la auditoria lo detecta (firma valida + cadena rota). Asegura que la
- * demo de 3 botones funciona de punta a punta.
+ * Scaffolding of the visual demo ('demo' profile): {@code reset} leaves a signed, intact chain;
+ * {@code tamper} breaks it and the audit detects it (valid signature + broken chain). It makes sure the
+ * 3-button demo works end to end.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",
@@ -46,6 +46,6 @@ class DemoSupportControllerTest {
         var tampered = checkpoints.audit();
         assertThat(tampered.tamperDetected()).isTrue();
         assertThat(tampered.chainIntact()).isFalse();
-        assertThat(tampered.signatureValid()).isTrue();   // la firma sigue valida; lo delata la cadena
+        assertThat(tampered.signatureValid()).isTrue();   // the signature is still valid; the chain exposes it
     }
 }

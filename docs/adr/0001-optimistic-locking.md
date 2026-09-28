@@ -1,71 +1,71 @@
-# ADR-0001: Optimistic locking + retry para mover dinero
+# ADR-0001: Optimistic locking + retry to move money
 
-## Estado
-Aceptada — 2026-06-12
+## Status
+Accepted — 2026-06-12
 
-## Contexto
-El saldo de una cuenta se actualiza en cada transferencia. Si dos transferencias
-concurrentes tocan la misma cuenta, pueden producir un *lost update*: ambas leen el
-mismo saldo, ambas deciden "hay fondos" y una pisa la escritura de la otra. Resultado:
-se crea o se pierde dinero. En un ledger eso es inadmisible.
+## Context
+An account's balance is updated on every transfer. If two concurrent transfers
+touch the same account, they can produce a *lost update*: both read the
+same balance, both decide "there are funds" and one overwrites the other's write. Result:
+money is created or lost. In a ledger that is unacceptable.
 
-Necesitamos seguridad bajo concurrencia sin sacrificar rendimiento en el caso común,
-donde dos operaciones sobre la MISMA cuenta en el MISMO instante son raras.
+We need safety under concurrency without sacrificing performance in the common case,
+where two operations on the SAME account at the SAME instant are rare.
 
-## Decisión
-Usamos **optimistic locking** con `@Version` (JPA) sobre `account`, más un **bucle de
-reintento fuera de la transacción** (`TransactionTemplate`, `MAX_ATTEMPTS = 5`):
+## Decision
+We use **optimistic locking** with `@Version` (JPA) on `account`, plus a **retry loop
+outside the transaction** (`TransactionTemplate`, `MAX_ATTEMPTS = 5`):
 
-- Al escribir, JPA emite `UPDATE account SET ..., version = version + 1 WHERE id = ? AND version = ?`.
-- Si otra transacción ya cambió la fila, el WHERE matchea 0 filas → `OptimisticLockException`.
-- El bucle atrapa esa excepción y reintenta desde cero (re-lee el saldo fresco y re-decide).
-- Cada intento es una transacción nueva; por eso el retry vive AFUERA del límite transaccional.
+- On write, JPA issues `UPDATE account SET ..., version = version + 1 WHERE id = ? AND version = ?`.
+- If another transaction already changed the row, the WHERE matches 0 rows → `OptimisticLockException`.
+- The loop catches that exception and retries from scratch (re-reads the fresh balance and decides again).
+- Each attempt is a new transaction; that is why the retry lives OUTSIDE the transactional boundary.
 
-El `catch` no atrapa solo el conflicto optimista: atrapa `ConcurrencyFailureException`, la
-super-clase común que cubre **ambos** casos reintentables. Además del optimista por `@Version`
-(`ObjectOptimisticLockingFailureException`), eso incluye el **deadlock de Postgres (`40P01`)** que
-ocurre cuando dos transferencias opuestas (A→B y B→A) toman los locks de fila en orden inverso.
-Antes el deadlock escapaba como un 500 pese a ser perfectamente reintentable; ahora cae en el mismo
-bucle de retry. Para reducir el deadlock *de raíz* (no solo absorberlo), `hibernate.order_updates` /
-`order_inserts` ordenan las escrituras por id, así ambas transferencias toman los locks en el mismo
-orden y el choque baja de frecuencia; el retry cubre el residual. *(La verdad está en
-`TransferService.java`, no en este ADR: ver el `catch (ConcurrencyFailureException)`, líneas ~64-71.)*
+The `catch` does not only catch the optimistic conflict: it catches `ConcurrencyFailureException`, the
+common superclass that covers **both** retryable cases. Besides the `@Version` optimistic conflict
+(`ObjectOptimisticLockingFailureException`), that includes the **Postgres deadlock (`40P01`)** that
+happens when two opposite transfers (A→B and B→A) take the row locks in reverse order.
+The deadlock used to escape as a 500 even though it is perfectly retryable; now it falls into the same
+retry loop. To reduce the deadlock *at its root* (not just absorb it), `hibernate.order_updates` /
+`order_inserts` order the writes by id, so both transfers take the locks in the same
+order and the collision becomes less frequent; the retry covers the residual. *(The truth is in
+`TransferService.java`, not in this ADR: see the `catch (ConcurrencyFailureException)`, lines ~64-71.)*
 
-Como segunda línea de defensa, el no-sobregiro también está enforced con un CHECK en la DB.
+As a second line of defence, no-overdraft is also enforced with a CHECK in the DB.
 
-## Consecuencias
-- (+) Sin locks pesimistas de base de datos (`SELECT ... FOR UPDATE`); muy rápido cuando los choques
-  son raros (caso común).
-- (+) Convierte una corrupción silenciosa (lost update) en un error ruidoso y atrapable.
-- (~) **Los deadlocks SÍ pueden ocurrir** (dos transferencias opuestas que lockean filas en orden
-  inverso → `40P01`). No los evitamos por completo: los **reducimos** ordenando las escrituras por id
-  (`hibernate.order_updates`/`order_inserts`) y **absorbemos** el residual en el mismo bucle de retry,
-  que trata el deadlock como un conflicto transitorio reintentable más. *(Corrección respecto de una
-  versión anterior de este ADR que afirmaba "sin deadlocks": el código real los maneja explícitamente
-  en `TransferService.java`; el código es la verdad.)*
-- (−) Bajo contención alta sobre una misma fila, hay reintentos (trabajo desperdiciado).
-  En el spike de 50 transferencias concurrentes, algunas agotan los 5 reintentos y fallan con 409
-  *aunque la causa es contención, no falta de fondos* (ver la cifra exacta de una corrida en
-  Verificación, abajo, y la advertencia de que es un dato de UNA corrida).
-  Mitigaciones aplicadas: *backoff* exponencial acotado + *jitter* (ya en el código). Mitigaciones
-  futuras posibles: más reintentos o serializar por cuenta.
+## Consequences
+- (+) No pessimistic database locks (`SELECT ... FOR UPDATE`); very fast when collisions
+  are rare (the common case).
+- (+) Turns a silent corruption (lost update) into a loud, catchable error.
+- (~) **Deadlocks CAN happen** (two opposite transfers that lock rows in reverse
+  order → `40P01`). We do not avoid them completely: we **reduce** them by ordering the writes by id
+  (`hibernate.order_updates`/`order_inserts`) and **absorb** the residual in the same retry loop,
+  which treats the deadlock as one more transient, retryable conflict. *(Correction to an
+  earlier version of this ADR that claimed "no deadlocks": the real code handles them explicitly
+  in `TransferService.java`; the code is the truth.)*
+- (−) Under high contention on the same row, there are retries (wasted work).
+  In the 50-concurrent-transfer spike, some exhaust the 5 retries and fail with 409
+  *even though the cause is contention, not lack of funds* (see the exact figure from one run in
+  Verification, below, and the warning that it is data from ONE run).
+  Mitigations applied: bounded exponential *backoff* + *jitter* (already in the code). Possible future
+  mitigations: more retries or serializing per account.
 
-## Alternativas consideradas
-- **Pessimistic locking (`SELECT ... FOR UPDATE`)**: bloquea la fila al leer; los demás esperan.
-  Sin reintentos, pero serializa el acceso (más lento bajo contención) y arriesga deadlocks.
-  Descartada como default; es la alternativa si la contención sobre una cuenta se volviera dominante.
-- **Tabla de saldos sin versión**: vulnerable a lost update. Descartada.
+## Alternatives considered
+- **Pessimistic locking (`SELECT ... FOR UPDATE`)**: locks the row on read; the others wait.
+  No retries, but it serializes access (slower under contention) and risks deadlocks.
+  Rejected as the default; it is the alternative if contention on one account became dominant.
+- **Balance table without a version**: vulnerable to lost updates. Rejected.
 
-## Verificación
-`LedgerConcurrencySpikeTest`: 50 transferencias concurrentes contra Postgres real (Testcontainers).
-Invariantes verificados: conservación, no-sobregiro, doble-entrada global (Σ créditos − débitos = 0),
-un asiento por éxito, y **que hubo al menos un reintento** (si no, el scheduler pudo correr los hilos
-casi en serie y el test pasaría sin ejercitar la concurrencia — falsa cobertura).
+## Verification
+`LedgerConcurrencySpikeTest`: 50 concurrent transfers against real Postgres (Testcontainers).
+Invariants verified: conservation, no overdraft, global double entry (Σ credits − debits = 0),
+one posting per success, and **that there was at least one retry** (otherwise the scheduler could have run the threads
+almost serially and the test would pass without exercising concurrency — false coverage).
 
-> **Nota sobre los números.** El reparto `ok=10, insufficient=36, conflict=4` es el resultado de **UNA
-> corrida puntual**, registrado antes de agregar el *backoff* exponencial + *jitter*. **No es un
-> invariante garantizado** y el test, a propósito, **no** lo afirma exacto: solo afirma rangos (éxitos
-> entre 1 y 10, según el saldo) y que hubo retries. Con el *backoff*+*jitter* ya en el código, es
-> esperable que **menos** transferencias agoten los reintentos, así que el `conflict=4` puede estar
-> desactualizado. Tomalo como ilustración de "bajo contención alta algunas agotan los reintentos", no
-> como una cifra fija.
+> **Note on the numbers.** The split `ok=10, insufficient=36, conflict=4` is the result of **ONE
+> single run**, recorded before the exponential *backoff* + *jitter* was added. **It is not a
+> guaranteed invariant** and the test, on purpose, does **not** assert it exactly: it only asserts ranges (successes
+> between 1 and 10, depending on the balance) and that there were retries. With *backoff*+*jitter* now in the code,
+> **fewer** transfers can be expected to exhaust the retries, so `conflict=4` may be
+> out of date. Take it as an illustration of "under high contention some exhaust the retries", not
+> as a fixed figure.

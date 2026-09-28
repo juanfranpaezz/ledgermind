@@ -6,8 +6,8 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
 /**
- * Prueba de RUNTIME del firmante post-cuantico: que BouncyCastle realmente firme y verifique ML-DSA
- * (compilar solo prueba que los simbolos existen, no que el algoritmo corra). No necesita Spring ni Postgres.
+ * RUNTIME test of the post-quantum signer: that BouncyCastle really signs and verifies ML-DSA
+ * (compiling only proves the symbols exist, not that the algorithm runs). It needs neither Spring nor Postgres.
  */
 class MlDsaJournalSignerTest {
 
@@ -35,8 +35,8 @@ class MlDsaJournalSignerTest {
     void rechaza_una_clave_publica_ajena() {
         byte[] data = "head:abc123".getBytes(StandardCharsets.UTF_8);
         String sig = signer.sign(data);
-        MlDsaJournalSigner otro = new MlDsaJournalSigner();
+        MlDsaJournalSigner other = new MlDsaJournalSigner();
 
-        assertThat(signer.verify(data, sig, otro.publicKeyBase64())).isFalse();
+        assertThat(signer.verify(data, sig, other.publicKeyBase64())).isFalse();
     }
 }

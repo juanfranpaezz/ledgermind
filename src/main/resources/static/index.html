@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LedgerMind — demo de auditor</title>
+  <title>LedgerMind — auditor demo</title>
   <style>
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ec; --mut:#9aa3b2;
             --ok:#3fb950; --bad:#f85149; --accent:#58a6ff; }
@@ -33,53 +33,53 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>LedgerMind <span style="color:var(--mut);font-weight:400">· demo de auditor</span></h1>
-    <p class="sub">Core de pagos con ledger de doble entrada, idempotencia y auditoría post-cuántica vía MCP.</p>
+    <h1>LedgerMind <span style="color:var(--mut);font-weight:400">· auditor demo</span></h1>
+    <p class="sub">Payments core with a double-entry ledger, idempotency and post-quantum auditing via MCP.</p>
 
     <div class="banner">
-      ⚖️ <b>DEMO con dinero simulado.</b> El ledger es <b>tamper-evident</b> (append-only + hash/firma),
-      no un sistema de prevención de fraude de producción. Lo real y defendible es el diseño de concurrencia
-      e idempotencia que está debajo. &nbsp;·&nbsp; <a href="https://github.com/juanfranpaezz/ledgermind" target="_blank">Código</a>
+      ⚖️ <b>DEMO with simulated money.</b> The ledger is <b>tamper-evident</b> (append-only + hash/signature),
+      not a production fraud-prevention system. What is real and defensible is the concurrency and
+      idempotency design underneath. &nbsp;·&nbsp; <a href="https://github.com/juanfranpaezz/ledgermind" target="_blank">Code</a>
     </div>
 
     <div class="top">
-      <button class="ghost" id="btnReset">🔄 Reiniciar demo a estado limpio</button>
+      <button class="ghost" id="btnReset">🔄 Reset the demo to a clean state</button>
       <span id="resetMsg" class="sub" style="margin:0"></span>
     </div>
 
     <div class="card">
-      <h2>1 · Idempotencia: un reintento no cobra dos veces</h2>
-      <p class="desc">Hago la <b>misma</b> transferencia dos veces con la misma <code>idempotencyKey</code>.
-        Debe crear <b>un solo</b> asiento y mover la plata <b>una sola vez</b>.</p>
-      <button data-demo="idem">Cobrar 2× con la misma clave</button>
+      <h2>1 · Idempotency: a retry does not charge twice</h2>
+      <p class="desc">I make the <b>same</b> transfer twice with the same <code>idempotencyKey</code>.
+        It must create <b>a single</b> posting and move the money <b>only once</b>.</p>
+      <button data-demo="idem">Charge 2× with the same key</button>
       <pre id="out-idem">—</pre>
     </div>
 
     <div class="card">
-      <h2>2 · Tamper-evidence: editar el libro rompe la cadena</h2>
-      <p class="desc">Simulo un atacante con acceso a la base que <b>edita un asiento por SQL directo</b>.
-        La firma ML-DSA sigue válida (firmó la cabeza original), pero la hash-chain <b>ya no recomputa</b>:
-        prueba de que lo alteraron <b>después</b> de firmar.</p>
-      <button data-demo="tamper">Editar un asiento por SQL</button>
+      <h2>2 · Tamper-evidence: editing the book breaks the chain</h2>
+      <p class="desc">I simulate an attacker with database access who <b>edits a posting by direct SQL</b>.
+        The ML-DSA signature stays valid (it signed the original head), but the hash-chain <b>no longer recomputes</b>:
+        proof that it was altered <b>after</b> signing.</p>
+      <button data-demo="tamper">Edit a posting via SQL</button>
       <pre id="out-tamper">—</pre>
     </div>
 
     <div class="card">
-      <h2>3 · El auditor responde: ¿el ledger fue manipulado?</h2>
-      <p class="desc">Esto es <b>el mismo informe</b> que el tool MCP <code>verify_journal_integrity</code>
-        le devuelve a un agente de IA. El agente lee y explica; nunca puede mover un peso.</p>
-      <button data-demo="audit">Preguntar al auditor</button>
+      <h2>3 · The auditor answers: was the ledger tampered with?</h2>
+      <p class="desc">This is <b>the same report</b> the MCP tool <code>verify_journal_integrity</code>
+        returns to an AI agent. The agent reads and explains; it can never move a single peso.</p>
+      <button data-demo="audit">Ask the auditor</button>
       <pre id="out-audit">—</pre>
     </div>
 
     <div class="card">
-      <h2>4 · Conciliación: el matcher clasifica los descuadres con el PSP</h2>
-      <p class="desc">Cruzo el ledger contra un feed (simulado) de liquidación del PSP. El matching es
-        <b>100% Java determinista</b>: una comisión no asentada, un cobro del PSP sin asiento, un asiento
-        que el PSP no reporta. Este es el <b>mismo resultado estructurado</b> que el tool MCP
-        <code>explain_reconciliation_discrepancy</code> le da a un agente para narrarlo y priorizar
-        (acá no corre ninguna IA; el código decide, la IA solo explicaría).</p>
-      <button data-demo="reconcile">Conciliar contra el PSP</button>
+      <h2>4 · Reconciliation: the matcher classifies the discrepancies with the PSP</h2>
+      <p class="desc">I match the ledger against a (simulated) PSP settlement feed. The matching is
+        <b>100% deterministic Java</b>: an unposted fee, a PSP charge without a posting, a posting
+        the PSP does not report. This is the <b>same structured result</b> the MCP tool
+        <code>explain_reconciliation_discrepancy</code> gives an agent to narrate and prioritize
+        (no AI runs here; the code decides, the AI would only explain).</p>
+      <button data-demo="reconcile">Reconcile against the PSP</button>
       <pre id="out-reconcile">—</pre>
     </div>
   </div>
@@ -100,68 +100,68 @@ const failed = (r, what) => pill(false, `${what} (HTTP ${r.status})`) +
   (typeof r.data?.detail === 'string' ? `\n${esc(r.data.detail)}` : '');
 
 async function reset() {
-  $('#resetMsg').textContent = 'reiniciando…';
+  $('#resetMsg').textContent = 'resetting…';
   let r;
   // A rejected fetch (network error) must end in a failure mark, never leave the progress text on screen.
   try { r = await api('POST', '/api/demo/reset'); }
-  catch (e) { $('#resetMsg').textContent = `✗ el reinicio falló (sin respuesta del servidor: ${e.message})`; return; }
+  catch (e) { $('#resetMsg').textContent = `✗ the reset failed (no response from the server: ${e.message})`; return; }
   $('#resetMsg').textContent = r.ok && typeof r.data.message === 'string'
-    ? r.data.message : `✗ el reinicio falló (HTTP ${r.status})`;
+    ? r.data.message : `✗ the reset failed (HTTP ${r.status})`;
   ['idem','tamper','audit'].forEach(k => $('#out-'+k).textContent = '—');
 }
 
 async function demoIdem() {
-  const out = $('#out-idem'); out.textContent = 'cobrando…';
+  const out = $('#out-idem'); out.textContent = 'charging…';
   const r = await api('POST', '/api/demo/idempotency');
-  if (!r.ok) { out.innerHTML = failed(r, 'la demo de idempotencia no respondió bien'); return; }
+  if (!r.ok) { out.innerHTML = failed(r, 'the idempotency demo did not answer correctly'); return; }
   const d = r.data;
   const ids = Number.isInteger(d.firstPostingId) && Number.isInteger(d.secondPostingId);
   const moved = Number.isInteger(d.betoBefore) && Number.isInteger(d.betoAfter) ? d.betoAfter - d.betoBefore : null;
   out.innerHTML =
-    `1ª llamada → asiento id=${esc(d.firstPostingId)}\n` +
-    `2ª llamada (misma idempotencyKey) → asiento id=${esc(d.secondPostingId)}\n\n` +
+    `1st call → posting id=${esc(d.firstPostingId)}\n` +
+    `2nd call (same idempotencyKey) → posting id=${esc(d.secondPostingId)}\n\n` +
     pill(ids && d.samePosting === true && d.firstPostingId === d.secondPostingId,
-      'mismo asiento (replay, no duplicado)') + '  ' +
+      'same posting (replay, not a duplicate)') + '  ' +
     pill(moved === 5000 || moved === 0, moved === 0
-      ? `ya estaba cobrado: esta vez no se movió plata (${esc(d.betoBefore)} → ${esc(d.betoAfter)})`
-      : `beto recibió 5000 una sola vez (${esc(d.betoBefore)} → ${esc(d.betoAfter)})`);
+      ? `already charged: no money moved this time (${esc(d.betoBefore)} → ${esc(d.betoAfter)})`
+      : `beto received 5000 only once (${esc(d.betoBefore)} → ${esc(d.betoAfter)})`);
 }
 
 async function demoTamper() {
-  const out = $('#out-tamper'); out.textContent = 'editando…';
+  const out = $('#out-tamper'); out.textContent = 'editing…';
   const t = await api('POST', '/api/demo/tamper');
-  if (!t.ok) { out.innerHTML = failed(t, 'la edición no se hizo'); return; }
+  if (!t.ok) { out.innerHTML = failed(t, 'the edit was not made'); return; }
   const r = await api('GET', '/api/demo/audit');
-  if (!r.ok) { out.innerHTML = `${esc(t.data.message)}\n\n` + failed(r, 'el auditor no respondió bien'); return; }
+  if (!r.ok) { out.innerHTML = `${esc(t.data.message)}\n\n` + failed(r, 'the auditor did not answer correctly'); return; }
   const a = r.data;
   out.innerHTML =
     `${esc(t.data.message)}\n\n` +
-    pill(a.signatureValid === true, 'signatureValid (la firma sigue válida)') + '  ' +
-    pill(a.chainIntact === false, 'chainIntact = false (la cadena ya no recomputa)') + '\n\n' +
-    `Veredicto del auditor:\n${esc(a.verdict)}`;
+    pill(a.signatureValid === true, 'signatureValid (the signature is still valid)') + '  ' +
+    pill(a.chainIntact === false, 'chainIntact = false (the chain no longer recomputes)') + '\n\n' +
+    `Auditor's verdict:\n${esc(a.verdict)}`;
 }
 
 async function demoAudit() {
-  const out = $('#out-audit'); out.textContent = 'consultando…';
+  const out = $('#out-audit'); out.textContent = 'querying…';
   const r = await api('GET', '/api/demo/audit');
-  if (!r.ok) { out.innerHTML = failed(r, 'el auditor no respondió bien'); return; }
+  if (!r.ok) { out.innerHTML = failed(r, 'the auditor did not answer correctly'); return; }
   const a = r.data;
-  const label = typeof a.tamperDetected !== 'boolean' ? 'respuesta sin tamperDetected'
-    : a.tamperDetected ? 'tamperDetected = TRUE' : 'sin evidencia de manipulación';
+  const label = typeof a.tamperDetected !== 'boolean' ? 'answer without tamperDetected'
+    : a.tamperDetected ? 'tamperDetected = TRUE' : 'no evidence of tampering';
   out.innerHTML =
     pill(a.tamperDetected === false, label) + '\n\n' +
     `${esc(a.verdict)}\n\n` +
-    `algoritmo=${esc(a.signatureAlgorithm)} · chainSeq=${esc(a.signedChainSeq)} · firmado=${esc(a.signedAt)}`;
+    `algorithm=${esc(a.signatureAlgorithm)} · chainSeq=${esc(a.signedChainSeq)} · signed=${esc(a.signedAt)}`;
 }
 
 async function demoReconcile() {
-  const out = $('#out-reconcile'); out.textContent = 'conciliando…';
+  const out = $('#out-reconcile'); out.textContent = 'reconciling…';
   const r = await api('POST', '/api/demo/reconcile');
-  if (!r.ok) { out.innerHTML = failed(r, 'la conciliación no respondió bien'); return; }
+  if (!r.ok) { out.innerHTML = failed(r, 'the reconciliation did not answer correctly'); return; }
   const d = r.data;
   const list = Array.isArray(d.discrepancies) ? d.discrepancies : [];
-  const label = typeof d.balanced !== 'boolean' ? 'respuesta sin balanced'
-    : d.balanced ? 'cuadra' : `${list.length} descuadre(s)`;
+  const label = typeof d.balanced !== 'boolean' ? 'answer without balanced'
+    : d.balanced ? 'balanced' : `${list.length} discrepancy(ies)`;
   let txt = `${esc(d.summary)}\n\n` + pill(d.balanced === true, label) +
     `  matched=${esc(d.matched)} · feed=${esc(d.feedTotal)} · ledger=${esc(d.ledgerTotal)}\n\n`;
   txt += list.map(x => `· [${esc(x.type)}] ${esc(x.ref)}: ${esc(x.detail)}`).join('\n');
@@ -178,7 +178,7 @@ document.querySelectorAll('button[data-demo]').forEach(b =>
     finally { document.querySelectorAll('button').forEach(x => x.disabled = false); }
   }));
 $('#btnReset').addEventListener('click', reset);
-// NO auto-reset: el reset es destructivo y publico; que cada quien lo dispare a mano con el boton.
+// NO auto-reset: the reset is destructive and public; let each visitor trigger it by hand with the button.
 </script>
 </body>
 </html>

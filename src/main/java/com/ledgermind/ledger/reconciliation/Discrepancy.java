@@ -1,17 +1,17 @@
 package com.ledgermind.ledger.reconciliation;
 
 /**
- * Un descuadre entre el feed del PSP y el ledger. {@code feedAmount}/{@code ledgerAmount} son 0 cuando el
- * registro no existe de ese lado. El {@code detail} es una explicacion legible (lo que el agente narra).
+ * A discrepancy between the PSP feed and the ledger. {@code feedAmount}/{@code ledgerAmount} are 0 when the
+ * record does not exist on that side. The {@code detail} is a readable explanation (what the agent narrates).
  */
 public record Discrepancy(Type type, String ref, long feedAmount, long ledgerAmount, String detail) {
 
     public enum Type {
-        /** El PSP liquidó algo que el ledger no tiene asentado. */
+        /** The PSP settled something the ledger has not posted. */
         MISSING_IN_LEDGER,
-        /** El ledger tiene un asiento que el PSP no reporta. */
+        /** The ledger has a posting the PSP does not report. */
         MISSING_IN_FEED,
-        /** Ambos tienen la referencia, pero por importe distinto (p.ej. comision/retencion no asentada). */
+        /** Both have the reference, but for a different amount (e.g. an unposted fee/withholding). */
         AMOUNT_MISMATCH
     }
 }

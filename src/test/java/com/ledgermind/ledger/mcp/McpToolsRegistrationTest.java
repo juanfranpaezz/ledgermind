@@ -10,9 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 
 /**
- * Prueba que las tools de SOLO LECTURA del ledger quedan expuestas por el MCP server con los nombres
- * esperados — incluida la auditoria post-cuantica de Capa 3. Solo inspecciona definiciones (no invoca),
- * asi que no necesita Spring ni Postgres: construye el provider igual que {@code McpConfig}.
+ * Tests that the ledger's READ-ONLY tools are exposed by the MCP server with the expected
+ * names — including the Layer 3 post-quantum audit. It only inspects definitions (it does not invoke),
+ * so it needs neither Spring nor Postgres: it builds the provider the same way as {@code McpConfig}.
  */
 class McpToolsRegistrationTest {
 

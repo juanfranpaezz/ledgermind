@@ -1,4 +1,4 @@
-# Provider de dashboards: Grafana carga los JSON de /var/lib/grafana/dashboards al arrancar.
+# Dashboard provider: Grafana loads the JSON files in /var/lib/grafana/dashboards at startup.
 apiVersion: 1
 providers:
   - name: LedgerMind

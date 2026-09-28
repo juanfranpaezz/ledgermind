@@ -8,19 +8,19 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Integridad del READ-MODEL de saldos contra el JOURNAL (tamper-evidence del contador, no de la cadena).
+ * Integrity of the balance READ-MODEL against the JOURNAL (tamper-evidence of the counter, not of the chain).
  *
- * <p>Los contadores {@code posted_debits} / {@code posted_credits} de {@link Account} se ADELANTAN con
- * {@code +=} en {@link TransferService} cuando se escribe el asiento, y despues NUNCA se recomputan. Si
- * alguien edita el importe de un asiento ya escrito (por SQL directo, por ejemplo), el contador conserva
- * la aritmetica VIEJA y el journal guarda la verdad NUEVA: los dos quedan en desacuerdo y nadie lo nota,
- * porque los tres lectores del contador ({@code LedgerController.AccountView}, el tool MCP
- * {@code get_balance} y {@link Account#availableBalance()}, que decide el rechazo por descubierto) leen
- * el numero cacheado sin re-derivarlo jamas.
+ * <p>The {@code posted_debits} / {@code posted_credits} counters of {@link Account} are ADVANCED with
+ * {@code +=} in {@link TransferService} when the posting is written, and afterwards they are NEVER recomputed. If
+ * someone edits the amount of an already-written posting (by direct SQL, for example), the counter keeps
+ * the OLD arithmetic and the journal holds the NEW truth: the two disagree and nobody notices,
+ * because the three readers of the counter ({@code LedgerController.AccountView}, the MCP tool
+ * {@code get_balance} and {@link Account#availableBalance()}, which decides the overdraft rejection) read
+ * the cached number without ever re-deriving it.
  *
- * <p>Esta clase REPLAYA el journal: suma los importes de todos los asientos por cuenta (debito y credito)
- * y compara contra lo almacenado. Reporta la cuenta, los dos numeros y la diferencia. Es DETECCION: no
- * corrige el contador ni toca el camino de escritura.
+ * <p>This class REPLAYS the journal: it sums the amounts of every posting per account (debit and credit)
+ * and compares against what is stored. It reports the account, both numbers and the difference. It is DETECTION: it does not
+ * correct the counter or touch the write path.
  *
  * <p>Snapshot: the comparison is ONE SQL statement (every account LEFT JOIN a GROUP BY aggregate of the journal), so
  * the stored counters and the journal sums come from the same statement snapshot even under READ COMMITTED; the
@@ -60,8 +60,8 @@ public class AccountBalanceVerifier {
     }
 
     /**
-     * Recomputa los contadores de CADA cuenta replayando el journal y los compara con lo almacenado.
-     * Solo lectura; no muta nada.
+     * Recomputes the counters of EVERY account by replaying the journal and compares them with what is stored.
+     * Read-only; it mutates nothing.
      */
     @Transactional(readOnly = true)
     public BalanceVerifyResult verify() {
@@ -89,8 +89,8 @@ public class AccountBalanceVerifier {
     }
 
     /**
-     * Una cuenta cuyo contador cacheado NO coincide con el replay del journal. Lleva los DOS numeros y la
-     * diferencia de cada lado, para que el descuadre se pueda leer sin volver a la base. The journal sums and the
+     * An account whose cached counter does NOT match the journal replay. It carries BOTH numbers and the
+     * difference on each side, so the mismatch can be read without going back to the database. The journal sums and the
      * differences are {@link BigInteger}: an out-of-band journal can sum above {@code Long.MAX_VALUE}.
      */
     public record AccountBalanceMismatch(Long accountId, String address,
@@ -99,13 +99,13 @@ public class AccountBalanceVerifier {
                                          long storedPostedCredits, BigInteger journalPostedCredits,
                                          BigInteger postedCreditsDifference) {
 
-        /** Linea legible para el verdict del audit y para los logs. */
+        /** Readable line for the audit verdict and for the logs. */
         public String describe() {
             StringBuilder sb = new StringBuilder(address).append(" (id ").append(accountId).append("):");
             if (postedDebitsDifference.signum() != 0) {
                 sb.append(" debitos almacenados ").append(storedPostedDebits)
                         .append(" vs journal ").append(journalPostedDebits)
-                        .append(" (diferencia ").append(postedDebitsDifference).append(")");
+                        .append(" (difference ").append(postedDebitsDifference).append(")");
             }
             if (postedCreditsDifference.signum() != 0) {
                 if (postedDebitsDifference.signum() != 0) {
@@ -113,13 +113,13 @@ public class AccountBalanceVerifier {
                 }
                 sb.append(" creditos almacenados ").append(storedPostedCredits)
                         .append(" vs journal ").append(journalPostedCredits)
-                        .append(" (diferencia ").append(postedCreditsDifference).append(")");
+                        .append(" (difference ").append(postedCreditsDifference).append(")");
             }
             return sb.toString();
         }
     }
 
-    /** Resultado del replay: si los contadores cierran, cuanto se reviso y los descuadres encontrados. */
+    /** Replay result: whether the counters balance, how much was checked and the mismatches found. */
     public record BalanceVerifyResult(boolean consistent, long accountsChecked, long postingsReplayed,
                                       List<AccountBalanceMismatch> mismatches) {
     }

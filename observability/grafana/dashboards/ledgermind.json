@@ -6,8 +6,8 @@
   "panels": [
     {
       "id": 1,
-      "title": "Reintentos por concurrencia (presion)",
-      "description": "ledgermind_transfer_retries: sube cuando dos transferencias chocan sobre la misma cuenta (optimistic lock) o se deadlockean. Es la presion de concurrencia del ledger.",
+      "title": "Concurrency retries (pressure)",
+      "description": "ledgermind_transfer_retries: rises when two transfers collide on the same account (optimistic lock) or deadlock. It is the ledger's concurrency pressure.",
       "type": "stat",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 6, "w": 12, "x": 0, "y": 0 },
@@ -27,7 +27,7 @@
     },
     {
       "id": 3,
-      "title": "Throughput HTTP (req/s por endpoint)",
+      "title": "HTTP throughput (req/s per endpoint)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },

@@ -63,7 +63,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             response.setStatus(429);                          // Too Many Requests
             response.setContentType("application/json");
             response.getWriter().write(
-                    "{\"detail\":\"Rate limit: demasiadas solicitudes, intenta de nuevo en unos segundos.\"}");
+                    "{\"detail\":\"Rate limit: too many requests, try again in a few seconds.\"}");
             return;
         }
         chain.doFilter(request, response);

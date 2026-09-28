@@ -1,4 +1,4 @@
-# Datasource de Grafana provisionado: apunta a Prometheus por la red interna del compose.
+# Provisioned Grafana datasource: points at Prometheus over the compose internal network.
 apiVersion: 1
 datasources:
   - name: Prometheus

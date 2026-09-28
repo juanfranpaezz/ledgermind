@@ -7,12 +7,12 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface PostingHashRepository extends JpaRepository<PostingHash, Long> {
 
-    /** La cabeza de la cadena (el ultimo eslabon encadenado). */
+    /** The head of the chain (the last chained link). */
     Optional<PostingHash> findTopByOrderBySeqDesc();
 
-    /** Un eslabon puntual por su posicion (para chequear que la cabeza firmada sigue presente). */
+    /** A single link by its position (to check that the signed head is still present). */
     Optional<PostingHash> findBySeq(long seq);
 
-    /** Pagina de la cadena por seq (keyset/seek pagination) para verificar sin cargar todo en memoria. */
+    /** A page of the chain by seq (keyset/seek pagination) to verify without loading everything into memory. */
     List<PostingHash> findBySeqGreaterThanOrderBySeqAsc(long seq, Limit limit);
 }

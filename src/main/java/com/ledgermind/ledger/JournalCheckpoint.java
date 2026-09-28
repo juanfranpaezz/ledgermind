@@ -10,14 +10,14 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * Un checkpoint firmado del journal (Signed Tree Head local). Captura la cabeza de la hash-chain en un
- * instante y la firma con ML-DSA. Tamper-EVIDENT a nivel aplicacion: {@code updatable = false} es solo
- * intencion para Hibernate, NO un control de DB. La inmutabilidad real exige WORM / REVOKE UPDATE,DELETE
- * a nivel base de datos; sin eso, un actor con escritura directa en la DB puede reescribir esta fila.
+ * A signed checkpoint of the journal (local Signed Tree Head). It captures the head of the hash-chain at an
+ * instant and signs it with ML-DSA. Tamper-EVIDENT at the application level: {@code updatable = false} is only
+ * an intent for Hibernate, NOT a DB control. Real immutability requires WORM / REVOKE UPDATE,DELETE
+ * at the database level; without it, an actor with direct write access to the DB can rewrite this row.
  *
- * <p>Guarda su propia {@code publicKey} por auditabilidad/conveniencia, NO como raiz de confianza:
- * verificar la firma contra esa clave prueba integridad-de-mensaje, no que el firmante fuera autorizado.
- * La clave de confianza debe anclarse fuera de la DB (config/HSM/log de transparencia).
+ * <p>It stores its own {@code publicKey} for auditability/convenience, NOT as a root of trust:
+ * verifying the signature against that key proves message integrity, not that the signer was authorized.
+ * The trust key must be anchored outside the DB (config/HSM/transparency log).
  */
 @Entity
 @Table(name = "journal_checkpoint")
@@ -46,7 +46,7 @@ public class JournalCheckpoint {
     private Instant signedAt;
 
     protected JournalCheckpoint() {
-        // requerido por JPA
+        // required by JPA
     }
 
     public JournalCheckpoint(long chainSeq, String headHash, String algorithm,

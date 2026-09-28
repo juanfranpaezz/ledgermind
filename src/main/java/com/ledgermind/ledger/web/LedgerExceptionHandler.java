@@ -13,8 +13,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * Traduce las excepciones de dominio a respuestas HTTP estandar (RFC 7807 ProblemDetail).
- * Centraliza el manejo de errores: los controllers no necesitan try/catch.
+ * Translates domain exceptions into standard HTTP responses (RFC 7807 ProblemDetail).
+ * It centralizes error handling: the controllers need no try/catch.
  */
 @RestControllerAdvice
 public class LedgerExceptionHandler {
@@ -29,11 +29,11 @@ public class LedgerExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
     }
 
-    /** 423 Locked: la cuenta esta congelada por el barrido de sobregiro; no es un 500 ni un saldo insuficiente. */
+    /** 423 Locked: the account is frozen by the overdraft sweep; it is neither a 500 nor insufficient funds. */
     @ExceptionHandler(AccountFrozenException.class)
     ProblemDetail handleFrozen(AccountFrozenException e) {
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.LOCKED, e.getMessage());
-        pd.setTitle("Cuenta congelada por sobregiro");
+        pd.setTitle("Account frozen for overdraft");
         pd.setProperty("accountId", e.getAccountId());
         pd.setProperty("overdraftFlagId", e.getFlagId());
         return pd;
@@ -63,28 +63,28 @@ public class LedgerExceptionHandler {
     }
 
     /**
-     * Red para CUALQUIER violacion de integridad de datos que escape al dominio (p. ej. crear una cuenta con
-     * un {@code address} ya existente choca con la {@code UNIQUE}). Sin esto caia al {@code /error} default:
-     * 500 + body legacy, fuera del contrato 7807. Un input valido del cliente (un duplicado) es un 409, no un
-     * 5xx. El {@code detail} es FIJO a proposito: {@code e.getMessage()} filtraria el nombre de la constraint
-     * y fragmentos de SQL al cliente.
+     * Safety net for ANY data-integrity violation that escapes the domain (e.g. creating an account with
+     * an existing {@code address} hits the {@code UNIQUE}). Without it, it fell into the default {@code /error}:
+     * 500 + legacy body, outside the 7807 contract. A valid client input (a duplicate) is a 409, not a
+     * 5xx. The {@code detail} is FIXED on purpose: {@code e.getMessage()} would leak the constraint name
+     * and SQL fragments to the client.
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail handleDataIntegrity(DataIntegrityViolationException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
-                "La operacion viola una restriccion de integridad (p. ej. un valor unico duplicado).");
+                "The operation violates an integrity constraint (e.g. a duplicated unique value).");
     }
 
     /**
-     * Estado interno inesperado e irrecuperable. Caso de uso real: {@code MlDsaJournalSigner.verify()} no pudo
-     * verificar la firma del checkpoint porque la clave/firma persistida esta ESTRUCTURALMENTE corrupta (Base64
-     * invalido, X.509 roto). Eso NO es evidencia de tamper (la firma realista con Base64 valido devuelve false y
-     * delata el tamper); es una falla del SERVIDOR. La mapeamos a 500 DENTRO del contrato RFC 7807 con detail
-     * FIJO (no filtra internals): fail-loud, pero no un 500 crudo fuera de contrato.
+     * Unexpected, unrecoverable internal state. Real use case: {@code MlDsaJournalSigner.verify()} could not
+     * verify the checkpoint signature because the persisted key/signature is STRUCTURALLY corrupt (invalid
+     * Base64, broken X.509). That is NOT evidence of tamper (a realistic signature with valid Base64 returns false and
+     * exposes the tamper); it is a SERVER failure. We map it to 500 INSIDE the RFC 7807 contract with a
+     * FIXED detail (it leaks no internals): fail-loud, but not a raw 500 outside the contract.
      */
     @ExceptionHandler(IllegalStateException.class)
     ProblemDetail handleIllegalState(IllegalStateException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR,
-                "No se pudo completar la operacion por un estado interno inesperado.");
+                "The operation could not be completed because of an unexpected internal state.");
     }
 }

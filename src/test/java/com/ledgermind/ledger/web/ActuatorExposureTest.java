@@ -16,7 +16,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * Outside the {@code demo} profile the Prometheus scrape endpoint is not anonymous: it needs an X-API-Key, like /api
- * (security gate r3, A2: it was served with no auth on the app port). Health stays anonymous (platform health checks).
+ * (it used to be served with no auth on the app port). Health stays anonymous (platform health checks).
  * Both outcomes: anonymous and unknown-key requests are refused, a valid key is served.
  *
  * <p>{@code @AutoConfigureObservability}: a plain {@code @SpringBootTest} disables metrics export, so without it the

@@ -12,12 +12,12 @@ import jakarta.persistence.Version;
 import java.time.Instant;
 
 /**
- * Una cuenta del ledger. Maneja UN solo asset/moneda.
+ * A ledger account. It holds ONE single asset/currency.
  *
- * <p>El saldo NO se guarda como un numero: se DERIVA de contadores acumulados
- * (estilo TigerBeetle). Los contadores solo se mutan por {@link #applyDebit(long)} /
- * {@link #applyCredit(long)}, nunca por setters publicos: asi la unica forma de mover
- * plata es el camino correcto.
+ * <p>The balance is NOT stored as a number: it is DERIVED from accumulated counters
+ * (TigerBeetle style). The counters are only mutated through {@link #applyDebit(long)} /
+ * {@link #applyCredit(long)}, never through public setters: that way the only way to move
+ * money is the correct path.
  */
 @Entity
 @Table(name = "account")
@@ -48,7 +48,7 @@ public class Account {
     @Column(name = "allow_negative", nullable = false, updatable = false)
     private boolean allowNegative;
 
-    /** Optimistic locking: JPA agrega {@code AND version = ?} en cada UPDATE. */
+    /** Optimistic locking: JPA adds {@code AND version = ?} to every UPDATE. */
     @Version
     private long version;
 
@@ -59,7 +59,7 @@ public class Account {
     private Instant updatedAt;
 
     protected Account() {
-        // requerido por JPA
+        // required by JPA
     }
 
     public Account(String address, String asset, boolean allowNegative) {
@@ -81,7 +81,7 @@ public class Account {
     }
 
     /**
-     * Saldo disponible en centavos: lo confirmado menos lo reservado.
+     * Available balance in cents: what is posted minus what is reserved.
      *
      * <p>Holds (two-phase reservations) are NOT implemented: no code path writes {@code pending_debits} or
      * {@code pending_credits}, so both are always 0 and this equals {@code postedCredits - postedDebits}. The
@@ -92,12 +92,12 @@ public class Account {
         return postedCredits - postedDebits - pendingDebits;
     }
 
-    /** Aplica un debito confirmado (sale plata de esta cuenta). */
+    /** Applies a posted debit (money leaves this account). */
     void applyDebit(long amount) {
         this.postedDebits = addExact(postedDebits, amount, "posted_debits");
     }
 
-    /** Aplica un credito confirmado (entra plata a esta cuenta). */
+    /** Applies a posted credit (money enters this account). */
     void applyCredit(long amount) {
         this.postedCredits = addExact(postedCredits, amount, "posted_credits");
     }
@@ -149,9 +149,9 @@ public class Account {
     }
 
     /**
-     * Identidad por CLAVE NATURAL (address), NO por el id IDENTITY: el id es null antes de
-     * persistir y cambia despues, lo que "rompe" la entidad dentro de un Set tras persist/merge.
-     * address es unica, inmutable y se asigna en construccion (estrategia de Vlad Mihalcea).
+     * Identity by NATURAL KEY (address), NOT by the IDENTITY id: the id is null before
+     * persisting and changes afterwards, which "breaks" the entity inside a Set after persist/merge.
+     * address is unique, immutable and assigned at construction (Vlad Mihalcea's strategy).
      */
     @Override
     public boolean equals(Object o) {

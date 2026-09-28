@@ -1,9 +1,9 @@
 package com.ledgermind.ledger.reconciliation;
 
 /**
- * Proyeccion de un asiento del ledger para reconciliar: su referencia externa (la {@code idempotencyKey},
- * que el cliente suele setear con su id de orden/pago) y el importe. El matcher trabaja contra esto, no
- * contra la entidad JPA — asi la logica de matching es pura y testeable sin base de datos.
+ * Projection of a ledger posting for reconciliation: its external reference (the {@code idempotencyKey},
+ * which the client usually sets to its order/payment id) and the amount. The matcher works against this, not
+ * against the JPA entity — so the matching logic is pure and testable without a database.
  */
 public record LedgerEntry(String ref, long amount) {
 }

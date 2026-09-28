@@ -1,40 +1,40 @@
 package com.ledgermind.ledger;
 
 /**
- * Firma crypto-AGIL del journal. Hay dos implementaciones: ML-DSA-65 (FIPS 204, post-cuantica; el
- * firmante ACTIVO por default) y {@link Ed25519JournalSigner} (clasica; el segundo esquema que prueba
- * la rotacion). La interfaz permite rotar de esquema o montar un hibrido sin tocar el dominio. El
- * entregable real es la CRYPTO-AGILITY: un ENABLER del plan de cambio de cripto que facilita PCI DSS 4.0
- * 12.3.3 (inventario y plan ante deprecaciones) y, a nivel marco, la gestion de riesgo ICT (DORA UE
- * 2022/2554, arts. 5-15). NO es "una firma cuantica" ni compliance certificado.
+ * Crypto-AGILE signing of the journal. There are two implementations: ML-DSA-65 (FIPS 204, post-quantum; the
+ * ACTIVE signer by default) and {@link Ed25519JournalSigner} (classical; the second scheme that proves
+ * rotation). The interface allows rotating schemes or mounting a hybrid without touching the domain. The
+ * real deliverable is CRYPTO-AGILITY: an ENABLER of the crypto change plan that supports PCI DSS 4.0
+ * 12.3.3 (inventory and plan for deprecations) and, at the framework level, ICT risk management (EU DORA
+ * 2022/2554, arts. 5-15). It is NOT "a quantum signature" nor certified compliance.
  *
- * <p>Agility COMPLETA (firma + verificacion):
+ * <p>COMPLETE agility (signing + verification):
  * <ul>
- *   <li><b>Firma:</b> el esquema activo se elige por configuracion ({@code ledgermind.journal.signer.algorithm},
- *       default {@code ML-DSA-65}); cada checkpoint persiste su {@code algorithm} y su clave publica.</li>
- *   <li><b>Verificacion:</b> el {@link JournalSignerRegistry} DESPACHA por el {@code algorithm} que el
- *       checkpoint registro -> un checkpoint firmado con un esquema se verifica con ESE esquema, aunque
- *       el firmante activo ya haya rotado a otro. Soporta >1 algoritmo en paralelo. Un algoritmo no
- *       registrado falla RUIDOSO (no se disfraza de tamper).</li>
+ *   <li><b>Signing:</b> the active scheme is chosen by configuration ({@code ledgermind.journal.signer.algorithm},
+ *       default {@code ML-DSA-65}); every checkpoint persists its {@code algorithm} and its public key.</li>
+ *   <li><b>Verification:</b> the {@link JournalSignerRegistry} DISPATCHES by the {@code algorithm} the
+ *       checkpoint recorded -> a checkpoint signed with one scheme is verified with THAT scheme, even if
+ *       the active signer has already rotated to another. It supports >1 algorithm in parallel. An algorithm that is not
+ *       registered fails LOUDLY (it is not disguised as tamper).</li>
  * </ul>
  *
- * <p>{@code verify} recibe la clave publica EXPLICITA. Eso prueba INTEGRIDAD-DE-MENSAJE (la firma cierra
- * contra la clave que la acompaña), NO autenticidad del firmante: sin un trust anchor externo (clave
- * pinneada en config, HSM/KMS, o un log de transparencia) NO prueba <i>quien</i> firmo. Completar la
- * agility NO cambia esto: el limite que queda es de GESTION DE CLAVES (anclar la clave publica fuera de
- * la DB), no de agility de algoritmo. Ver {@code JournalCheckpointService.verifyLatest}.
+ * <p>{@code verify} receives the EXPLICIT public key. That proves MESSAGE INTEGRITY (the signature checks out
+ * against the key that accompanies it), NOT the signer's authenticity: without an external trust anchor (key
+ * pinned in config, HSM/KMS, or a transparency log) it does NOT prove <i>who</i> signed. Completing the
+ * agility does NOT change this: the remaining limit is one of KEY MANAGEMENT (anchoring the public key outside
+ * the DB), not of algorithm agility. See {@code JournalCheckpointService.verifyLatest}.
  */
 public interface JournalSigner {
 
-    /** Nombre del algoritmo de firma en uso (se persiste en cada checkpoint). */
+    /** Name of the signature algorithm in use (persisted in every checkpoint). */
     String algorithm();
 
-    /** Clave PUBLICA (base64, X.509) del firmante actual; se persiste junto a cada firma. */
+    /** PUBLIC key (base64, X.509) of the current signer; persisted alongside every signature. */
     String publicKeyBase64();
 
-    /** Firma los datos y devuelve la firma en base64. */
+    /** Signs the data and returns the signature in base64. */
     String sign(byte[] data);
 
-    /** Verifica una firma base64 contra los datos, usando la clave publica (base64) provista. */
+    /** Verifies a base64 signature against the data, using the provided (base64) public key. */
     boolean verify(byte[] data, String signatureBase64, String publicKeyBase64);
 }

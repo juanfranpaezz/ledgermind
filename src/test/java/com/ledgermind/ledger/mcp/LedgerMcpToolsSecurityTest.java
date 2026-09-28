@@ -14,10 +14,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Prueba que el scope per-tool ({@code @PreAuthorize("hasAuthority('SCOPE_ledger.read')")}) se ENFORZA de
- * verdad al INVOCAR la tool MCP — no solo que la anotacion esta puesta. Se inyecta el bean PROXEADO de
- * Spring (el mismo que recibe el MethodToolCallbackProvider), asi que la llamada pasa por la AOP de
- * method-security igual que el dispatch real del MCP server.
+ * Tests that the per-tool scope ({@code @PreAuthorize("hasAuthority('SCOPE_ledger.read')")}) is really
+ * ENFORCED when INVOKING the MCP tool — not only that the annotation is present. Spring's PROXIED bean is injected
+ * (the same one the MethodToolCallbackProvider receives), so the call goes through the
+ * method-security AOP just like the MCP server's real dispatch.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",

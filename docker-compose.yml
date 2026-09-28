@@ -1,4 +1,4 @@
-# Postgres local para desarrollo. En tests usamos Testcontainers (Postgres efimero), no este.
+# Local Postgres for development. Tests use Testcontainers (ephemeral Postgres), not this one.
 services:
   postgres:
     image: postgres:16

@@ -30,8 +30,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Barrido de sobregiro con marca de agua + congelamiento (dec-151), sobre postgres real. Los jobs programados estan en
- * 1 h: los tests manejan el barrido a mano. watermark-lag 0 = la marca avanza hasta el ultimo asiento visible.
+ * Overdraft sweep with a watermark + freeze, on real postgres. The scheduled jobs are set to
+ * 1 h: the tests drive the sweep by hand. watermark-lag 0 = the watermark advances up to the last visible posting.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",
@@ -71,7 +71,7 @@ class OverdraftSweepTest {
         SecurityContextHolder.clearContext();
     }
 
-    /** funding(1, allow_negative) -> a(2) 100000, -> b(3) 100000. Asientos 1 y 2. */
+    /** funding(1, allow_negative) -> a(2) 100000, -> b(3) 100000. Postings 1 and 2. */
     private void seed() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
@@ -80,7 +80,7 @@ class OverdraftSweepTest {
         ledger.transfer("external:funding", "wallet:b", 100_000, "seed-b");
     }
 
-    /** Asiento insertado POR FUERA de la app: a(2) -> b(3) 150000, sin tocar contadores. Sobregira a en el journal. */
+    /** A posting inserted OUTSIDE the app: a(2) -> b(3) 150000, without touching the counters. It overdraws a in the journal. */
     private void plantOverdraft() {
         jdbc.update("INSERT INTO posting (debit_account_id, credit_account_id, amount, asset, idempotency_key)"
                 + " VALUES (2, 3, 150000, 'ARS', 'PLANTED-OVERDRAFT')");
@@ -95,7 +95,7 @@ class OverdraftSweepTest {
         seed();
         log("seed", sweeper.sweep());
         plantOverdraft();
-        // el gate de la app mira los contadores: sin el barrido, la cuenta sigue operando como si tuviera 100000
+        // the app's gate looks at the counters: without the sweep, the account keeps operating as if it had 100000
         assertThat(ledger.getByAddress("wallet:a").availableBalance()).isEqualTo(100_000);
 
         SweepResult r = sweeper.sweep();
@@ -111,19 +111,19 @@ class OverdraftSweepTest {
         assertThat(((Number) flag.get("posting_id_to")).longValue()).isEqualTo(3L);
 
         assertThatThrownBy(() -> ledger.transfer("wallet:a", "wallet:b", 1_000, "after-freeze-out"))
-                .isInstanceOf(AccountFrozenException.class).hasMessageContaining("CONGELADA")
+                .isInstanceOf(AccountFrozenException.class).hasMessageContaining("FROZEN")
                 .satisfies(e -> assertThat(((AccountFrozenException) e).getAccountId()).isEqualTo(2L));
         assertThatThrownBy(() -> ledger.transfer("external:funding", "wallet:a", 1_000, "after-freeze-in"))
                 .isInstanceOf(AccountFrozenException.class);
-        // una cuenta no marcada sigue operando
+        // an account that is not flagged keeps operating
         ledger.transfer("external:funding", "wallet:b", 1_000, "unrelated-ok");
 
-        // por HTTP: 423 con ProblemDetail especifico, no un 500
+        // over HTTP: 423 with a specific ProblemDetail, not a 500
         mvc.perform(post("/api/transfers").header("X-API-Key", TestApiKeys.key()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"debitAddress\":\"wallet:a\",\"creditAddress\":\"wallet:b\",\"amount\":500,"
                                 + "\"idempotencyKey\":\"http-frozen\"}"))
                 .andExpect(status().isLocked())
-                .andExpect(jsonPath("$.title").value("Cuenta congelada por sobregiro"))
+                .andExpect(jsonPath("$.title").value("Account frozen for overdraft"))
                 .andExpect(jsonPath("$.accountId").value(2));
     }
 
@@ -137,7 +137,7 @@ class OverdraftSweepTest {
         }
         int n = 1000;
         for (int i = 0; i < n; i++) {
-            if (i % 4 == 3) {   // tambien movimientos entre billeteras, siempre con fondos
+            if (i % 4 == 3) {   // also movements between wallets, always with funds
                 ledger.transfer("wallet:w" + (i % wallets), "wallet:w" + ((i + 1) % wallets), 5, "burst-" + i);
             } else {
                 ledger.transfer("external:funding", "wallet:w" + (i % wallets), 100, "burst-" + i);
@@ -176,34 +176,34 @@ class OverdraftSweepTest {
         assertThat(sweeper.activeFlags()).hasSize(1);
 
         SecurityContextHolder.getContext().setAuthentication(
-                new TestingAuthenticationToken("operador-ana", null, "SCOPE_ledger.admin"));
-        String msg = adminTools.unfreezeAccount("wallet:a", "asiento 3 revisado; contadores conciliados a mano");
-        assertThat(msg).contains("descongelada por operador-ana");
+                new TestingAuthenticationToken("operator-ana", null, "SCOPE_ledger.admin"));
+        String msg = adminTools.unfreezeAccount("wallet:a", "posting 3 reviewed; counters reconciled by hand");
+        assertThat(msg).contains("unfrozen by operator-ana");
         Map<String, Object> row = jdbc.queryForMap("SELECT cleared_at, cleared_by, clear_reason FROM overdraft_flag");
         System.out.println("[SWEEP][unfreeze-record] " + row);
         assertThat(row.get("cleared_at")).isNotNull();
-        assertThat(row.get("cleared_by")).isEqualTo("operador-ana");
-        assertThat(row.get("clear_reason")).isEqualTo("asiento 3 revisado; contadores conciliados a mano");
+        assertThat(row.get("cleared_by")).isEqualTo("operator-ana");
+        assertThat(row.get("clear_reason")).isEqualTo("posting 3 reviewed; counters reconciled by hand");
         assertThat(sweeper.activeFlags()).isEmpty();
 
         ledger.transfer("wallet:a", "wallet:b", 1_000, "after-unfreeze");   // vuelve a operar
     }
 
     /**
-     * (a2) del gate 2026-09-24: la EDICION de un asiento ya barrido (id <= marca de agua) no se veia ni despues de que
-     * la cuenta volviera a moverse, porque el total incremental no se re-derivaba. Ahora tocar una cuenta re-deriva
-     * TODOS sus asientos (no solo los de arriba de la marca).
+     * (a2): the EDIT of an already-swept posting (id <= watermark) was not seen even after
+     * the account moved again, because the incremental total was not re-derived. Now touching an account re-derives
+     * ALL its postings (not only the ones above the watermark).
      */
     @Test
     void edicion_de_un_asiento_ya_barrido_se_marca_cuando_la_cuenta_vuelve_a_moverse() {
         seed();
-        ledger.transfer("wallet:a", "wallet:b", 10, "small");              // asiento 3: a -> b 10
-        log("a2-first", sweeper.sweep());                                     // la marca de agua pasa el asiento 3
-        jdbc.update("UPDATE posting SET amount = 150000 WHERE id = 3");       // edicion por fuera, debajo de la marca
+        ledger.transfer("wallet:a", "wallet:b", 10, "small");              // posting 3: a -> b 10
+        log("a2-first", sweeper.sweep());                                     // the watermark passes posting 3
+        jdbc.update("UPDATE posting SET amount = 150000 WHERE id = 3");       // edit outside the app, below the watermark
         SweepResult quiet = sweeper.sweep();
         log("a2-quiet", quiet);
-        assertThat(quiet.flagged()).isZero();                                 // la cuenta no se movio: no se re-deriva
-        ledger.transfer("wallet:a", "wallet:b", 1, "a2-moves");               // el gate mira contadores: pasa
+        assertThat(quiet.flagged()).isZero();                                 // the account did not move: not re-derived
+        ledger.transfer("wallet:a", "wallet:b", 1, "a2-moves");               // the gate looks at the counters: it passes
         SweepResult moved = sweeper.sweep();
         log("a2-moved", moved);
         assertThat(moved.flagged()).isEqualTo(1);
@@ -212,10 +212,10 @@ class OverdraftSweepTest {
     }
 
     /**
-     * (a3) DOCUMENTADO, no arreglado (decision del dueno, J2): un INSERT por fuera con id POR DEBAJO de la marca de agua
-     * (p.ej. id -1) en una cuenta que no vuelve a moverse no lo ve el barrido. Este test FIJA ese comportamiento (esta en
-     * el NO DETECTA del README y de los tools) para que cambiarlo sea una decision deliberada. Si la cuenta se mueve, el
-     * replay completo de la cuenta tocada (a2) lo incluye.
+     * (a3) DOCUMENTED, not fixed (a deliberate design decision): an INSERT outside the app with an id BELOW the watermark
+     * (e.g. id -1) on an account that never moves again is not seen by the sweep. This test PINS that behaviour (it is in
+     * the DOES NOT DETECT of the README and the tools) so that changing it is a deliberate decision. If the account moves, the
+     * full replay of the touched account (a2) includes it.
      */
     @Test
     void insercion_con_id_bajo_la_marca_de_agua_en_cuenta_quieta_no_la_ve_el_barrido_documentado() {
@@ -230,7 +230,7 @@ class OverdraftSweepTest {
         ledger.transfer("wallet:a", "wallet:b", 1, "a3-moves");
         SweepResult moved = sweeper.sweep();
         log("a3-moved", moved);
-        assertThat(moved.flagged()).isEqualTo(1);                             // tocada: el replay completo incluye id -1
+        assertThat(moved.flagged()).isEqualTo(1);                             // touched: the full replay includes id -1
     }
 
     @Test

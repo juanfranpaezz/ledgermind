@@ -16,22 +16,22 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * Firmante Ed25519 (EdDSA, RFC 8032) via BouncyCastle — el SEGUNDO esquema, para demostrar que la
- * crypto-agility es REAL y no solo declarada: el journal puede firmarse y verificarse con >1 algoritmo,
- * y un checkpoint viejo se sigue verificando con SU esquema aunque el firmante activo haya rotado.
+ * Ed25519 signer (EdDSA, RFC 8032) via BouncyCastle — the SECOND scheme, to show that
+ * crypto-agility is REAL and not just declared: the journal can be signed and verified with >1 algorithm,
+ * and an old checkpoint is still verified with ITS scheme even after the active signer has rotated.
  *
- * <p>Ed25519 es una firma CLASICA (no post-cuantica): un adversario con computadora cuantica la rompe.
- * Su rol aca NO es seguridad post-cuantica — es ser el "otro" algoritmo que prueba el dispatch por
- * nombre del {@link JournalSignerRegistry}. En produccion serviria como el carril de rotacion ante una
- * deprecacion de ML-DSA, o como pata clasica de un esquema HIBRIDO (clasico + PQC).
+ * <p>Ed25519 is a CLASSICAL signature (not post-quantum): an adversary with a quantum computer breaks it.
+ * Its role here is NOT post-quantum security — it is to be the "other" algorithm that proves the by-name
+ * dispatch of {@link JournalSignerRegistry}. In production it would serve as the rotation lane for a
+ * deprecation of ML-DSA, or as the classical leg of a HYBRID scheme (classical + PQC).
  *
- * <p>Misma honestidad de alcance que {@link MlDsaJournalSigner}: clave EFIMERA al arranque -> demostracion,
- * no compliance; {@code verify} con clave explicita prueba integridad-de-mensaje, NO autenticidad del
- * firmante sin un trust anchor externo.
+ * <p>Same honesty of scope as {@link MlDsaJournalSigner}: EPHEMERAL key at startup -> a demonstration,
+ * not compliance; {@code verify} with an explicit key proves message integrity, NOT the signer's
+ * authenticity without an external trust anchor.
  *
- * <p>Por defecto NO es el firmante ACTIVO (lo elige {@code ledgermind.journal.signer.algorithm};
- * default ML-DSA-65). Pero SIEMPRE esta registrado para VERIFICAR: asi un checkpoint firmado con Ed25519
- * — en este o en otro despliegue — se puede auditar siempre.
+ * <p>By default it is NOT the ACTIVE signer (chosen by {@code ledgermind.journal.signer.algorithm};
+ * default ML-DSA-65). But it is ALWAYS registered for VERIFICATION: that way a checkpoint signed with Ed25519
+ * — in this or another deployment — can always be audited.
  */
 @Component
 public class Ed25519JournalSigner implements JournalSigner {
@@ -50,7 +50,7 @@ public class Ed25519JournalSigner implements JournalSigner {
             KeyPairGenerator generator = KeyPairGenerator.getInstance("Ed25519", "BC");
             this.keyPair = generator.generateKeyPair();
         } catch (Exception e) {
-            throw new IllegalStateException("No se pudo inicializar el firmante Ed25519", e);
+            throw new IllegalStateException("Could not initialize the Ed25519 signer", e);
         }
     }
 
@@ -72,14 +72,14 @@ public class Ed25519JournalSigner implements JournalSigner {
             signature.update(data);
             return Base64.getEncoder().encodeToString(signature.sign());
         } catch (Exception e) {
-            throw new IllegalStateException("Error firmando con Ed25519", e);
+            throw new IllegalStateException("Error signing with Ed25519", e);
         }
     }
 
     /**
-     * Verifica la firma con la MISMA disciplina estructural-vs-tamper que {@link MlDsaJournalSigner#verify}:
-     * la firma que no cierra es la UNICA causa de {@code false} (tamper genuino); una falla ambiental
-     * (Base64 corrupto, clave X.509 invalida, provider ausente) NO se disfraza de tamper -> falla ruidoso.
+     * Verifies the signature with the SAME structural-vs-tamper discipline as {@link MlDsaJournalSigner#verify}:
+     * a signature that does not check out is the ONLY cause of {@code false} (genuine tamper); an environmental failure
+     * (corrupt Base64, invalid X.509 key, missing provider) is NOT disguised as tamper -> it fails loudly.
      */
     @Override
     public boolean verify(byte[] data, String signatureBase64, String publicKeyBase64) {
@@ -92,11 +92,11 @@ public class Ed25519JournalSigner implements JournalSigner {
             signature.update(data);
             return signature.verify(Base64.getDecoder().decode(signatureBase64));
         } catch (SignatureException badSignature) {
-            log.warn("Firma Ed25519 invalida: la firma no cierra bajo la clave provista", badSignature);
+            log.warn("Invalid Ed25519 signature: the signature does not check out under the provided key", badSignature);
             return false;
         } catch (GeneralSecurityException | IllegalArgumentException structural) {
             throw new IllegalStateException(
-                    "No se pudo verificar la firma Ed25519 (causa estructural, no evidencia de tamper)", structural);
+                    "Could not verify the Ed25519 signature (structural cause, not evidence of tamper)", structural);
         }
     }
 }

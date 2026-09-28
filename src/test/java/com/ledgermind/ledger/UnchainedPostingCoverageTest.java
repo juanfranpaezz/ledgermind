@@ -18,16 +18,16 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Cobertura de la hash-chain vs el journal: el "agujero de acunacion" (mint hole).
+ * Coverage of the hash-chain vs the journal: the "mint hole".
  *
- * <p>Ataque: un escritor de DB INSERTA un asiento falso y ajusta en el mismo movimiento los dos contadores
- * cacheados. Replay == contadores, la cadena no lo visita (no tiene eslabon) y la firma sigue valida.
+ * <p>Attack: a DB writer INSERTS a fake posting and adjusts the two cached counters in the same
+ * move. Replay == counters, the chain does not visit it (it has no link) and the signature stays valid.
  *
- * <p>Regla (STALE-UNCHAINED): un asiento sin eslabon cuyo created_at es mas viejo que la ventana legitima del
- * encadenador (max(unchained-grace-ms, 3 x chain-delay-ms)) es tamper. Con los jobs apagados en este test
- * (chain-delay 1 h) la ventana efectiva es 3 h. Un asiento sin eslabon DENTRO de la ventana se reporta pero no es
- * tamper: es indistinguible de un asiento legitimo recien posteado. Los tests KNOWN_GAP_* fijan lo que la
- * regla NO puede ver, para que la descripcion del tool MCP no pueda afirmar mas de lo que el codigo hace.
+ * <p>Rule (STALE-UNCHAINED): an unlinked posting whose created_at is older than the chainer's legitimate
+ * window (max(unchained-grace-ms, 3 x chain-delay-ms)) is tamper. With the jobs switched off in this test
+ * (chain-delay 1 h) the effective window is 3 h. An unlinked posting INSIDE the window is reported but is not
+ * tamper: it is indistinguishable from a legitimate posting just written. The KNOWN_GAP_* tests pin what the
+ * rule can NOT see, so that the MCP tool description cannot claim more than the code does.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",
@@ -54,7 +54,7 @@ class UnchainedPostingCoverageTest {
         jdbc.execute("TRUNCATE journal_checkpoint, posting_hash, posting, account RESTART IDENTITY CASCADE");
     }
 
-    /** funding(1, allow_negative) -> a(2) 100000 y -> b(3) 100000; encadenado y con checkpoint ML-DSA firmado. */
+    /** funding(1, allow_negative) -> a(2) 100000 and -> b(3) 100000; chained and with a signed ML-DSA checkpoint. */
     private void seedChainedAndSigned() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:a", "ARS", false);
@@ -65,7 +65,7 @@ class UnchainedPostingCoverageTest {
         assertThat(checkpoints.checkpointIfHeadAdvanced()).isPresent();
     }
 
-    /** El ataque de 3 sentencias: INSERT del asiento falso + los dos contadores ajustados. */
+    /** The 3-statement attack: INSERT of the fake posting + the two adjusted counters. */
     private void mint(long amount, String key, String createdAtSql) {
         jdbc.update("INSERT INTO posting (debit_account_id, credit_account_id, amount, asset, idempotency_key, created_at)"
                 + " VALUES (1, 3, ?, 'ARS', ?, " + createdAtSql + ")", amount, key);
@@ -80,7 +80,7 @@ class UnchainedPostingCoverageTest {
         System.out.println("[COVERAGE][" + tag + "] verdict=" + r.verdict());
     }
 
-    /** Lee un componente del record por reflexion: el test compila tambien contra el codigo PRE-fix (rojo real). */
+    /** Reads a record component by reflection: the test also compiles against the PRE-fix code (a real red). */
     private static long component(Object rec, String name) {
         try {
             for (RecordComponent rc : rec.getClass().getRecordComponents()) {
@@ -91,7 +91,7 @@ class UnchainedPostingCoverageTest {
         } catch (ReflectiveOperationException e) {
             throw new AssertionError(e);
         }
-        throw new AssertionError("JournalIntegrityReport no tiene el componente '" + name + "' (build pre-fix)");
+        throw new AssertionError("JournalIntegrityReport has no component '" + name + "' (pre-fix build)");
     }
 
     // ---------------------------------------------------------------- VERDE: sin falsas alarmas
@@ -109,25 +109,25 @@ class UnchainedPostingCoverageTest {
     @Test
     void asiento_legitimo_recien_posteado_sin_encadenar_queda_verde_pero_se_reporta() {
         seedChainedAndSigned();
-        ledger.transfer("wallet:a", "wallet:b", 30_000, "fresh-legit");      // el encadenador aun no corrio
+        ledger.transfer("wallet:a", "wallet:b", 30_000, "fresh-legit");      // the chainer has not run yet
         var r = checkpoints.audit();
         log("fresh-legit", r);
         assertThat(r.tamperDetected()).isFalse();
         assertThat(component(r, "unchainedPostings")).isEqualTo(1);
         assertThat(component(r, "staleUnchainedPostings")).isZero();
-        assertThat(r.verdict()).contains("SIN EVIDENCIA DE EDICION").contains("aun sin encadenar");
+        assertThat(r.verdict()).contains("NO EVIDENCE OF EDITING").contains("not chained yet");
     }
 
     @Test
     void borde_de_la_ventana_dentro_verde_fuera_rojo() {
         seedChainedAndSigned();
         Posting p = ledger.transfer("wallet:a", "wallet:b", 30_000, "edge");
-        // ventana efectiva en este test = 3 h (3 x chain-delay 1 h). 170 min: adentro.
+        // effective window in this test = 3 h (3 x chain-delay 1 h). 170 min: inside.
         jdbc.update("UPDATE posting SET created_at = now() - interval '170 minutes' WHERE id = ?", p.getId());
         var inside = checkpoints.audit();
         log("edge-inside", inside);
         assertThat(inside.tamperDetected()).isFalse();
-        // 190 min: afuera -> el encadenador ya deberia haberlo cubierto; la auditoria no lo puede avalar.
+        // 190 min: outside -> the chainer should already have covered it; the audit cannot vouch for it.
         jdbc.update("UPDATE posting SET created_at = now() - interval '190 minutes' WHERE id = ?", p.getId());
         var outside = checkpoints.audit();
         log("edge-outside", outside);
@@ -140,10 +140,10 @@ class UnchainedPostingCoverageTest {
         Method m = JournalCheckpointService.class.getDeclaredMethod("effectiveUnchainedGraceMs", long.class, long.class);
         m.setAccessible(true);
         assertThat((long) m.invoke(null, 60_000L, 5_000L)).isEqualTo(60_000L);          // defaults de application
-        assertThat((long) m.invoke(null, 60_000L, 3_600_000L)).isEqualTo(10_800_000L);  // encadenador lento
+        assertThat((long) m.invoke(null, 60_000L, 3_600_000L)).isEqualTo(10_800_000L);  // slow chainer
     }
 
-    // ---------------------------------------------------------------- ROJO: lo que la regla SI ve
+    // ---------------------------------------------------------------- RED: what the rule DOES see
 
     @Test
     void acunacion_con_asiento_viejo_sin_encadenar_se_detecta() {
@@ -152,13 +152,13 @@ class UnchainedPostingCoverageTest {
         assertThat(ledger.getByAddress("wallet:b").availableBalance()).isEqualTo(877_000);
         var r = checkpoints.audit();
         log("stale-mint", r);
-        // los tres planos viejos siguen limpios: lo que lo delata es la clausula nueva, no otra
+        // the three old planes are still clean: what exposes it is the new clause, not another one
         assertThat(r.chainIntact()).isTrue();
         assertThat(r.balancesConsistent()).isTrue();
         assertThat(r.signatureValid()).isTrue();
         assertThat(r.tamperDetected()).isTrue();
         assertThat(component(r, "staleUnchainedPostings")).isEqualTo(1);
-        assertThat(r.verdict()).contains("MANIPULACION DETECTADA").contains("sin encadenar");
+        assertThat(r.verdict()).contains("TAMPER DETECTED").contains("unchained");
     }
 
     @Test
@@ -181,8 +181,8 @@ class UnchainedPostingCoverageTest {
         jdbc.update("UPDATE posting SET amount = 10000, created_at = now() - interval '1 day' WHERE id = ?", y.getId());
         var r = checkpoints.audit();
         log("compensating-stale", r);
-        assertThat(r.balancesConsistent()).isTrue();          // +10000 / -10000: el neto no se mueve
-        assertThat(r.tamperDetected()).isTrue();              // lo ve SOLO por la antiguedad sin eslabon
+        assertThat(r.balancesConsistent()).isTrue();          // +10000 / -10000: the net does not move
+        assertThat(r.tamperDetected()).isTrue();              // it sees it ONLY through the age without a link
     }
 
     @Test
@@ -191,17 +191,17 @@ class UnchainedPostingCoverageTest {
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.createAccount("wallet:b", "ARS", false);
         ledger.transfer("external:funding", "wallet:b", 100_000, "seed-b");
-        chainer.chainPendingPostings();                       // cadena encadenada, SIN checkpoint firmado
+        chainer.chainPendingPostings();                       // chain linked, NO signed checkpoint
         mint(777_000, "FORGED-STALE-NOCP", "now() - interval '1 day'");
         var r = checkpoints.audit();
         log("stale-mint-no-checkpoint", r);
         assertThat(r.checkpointPresent()).isFalse();
         assertThat(r.balancesConsistent()).isTrue();
         assertThat(r.tamperDetected()).isTrue();
-        assertThat(r.verdict()).contains("MANIPULACION DETECTADA").contains("sin encadenar");
+        assertThat(r.verdict()).contains("TAMPER DETECTED").contains("unchained");
     }
 
-    // ---------------------------------------------------------------- KNOWN GAP: lo que la regla NO ve
+    // ---------------------------------------------------------------- KNOWN GAP: what the rule does NOT see
 
     @Test
     void KNOWN_GAP_acunacion_reciente_es_indistinguible_de_un_asiento_legitimo_en_ventana() {
@@ -210,8 +210,8 @@ class UnchainedPostingCoverageTest {
         var r = checkpoints.audit();
         log("fresh-mint", r);
         assertThat(r.tamperDetected()).isFalse();
-        assertThat(component(r, "unchainedPostings")).isEqualTo(1);      // al menos queda REPORTADO, no callado
-        assertThat(r.verdict()).contains("aun sin encadenar").contains("INSERCION");
+        assertThat(component(r, "unchainedPostings")).isEqualTo(1);      // at least it stays REPORTED, not silent
+        assertThat(r.verdict()).contains("not chained yet").contains("INSERTION");
     }
 
     @Test
@@ -239,12 +239,12 @@ class UnchainedPostingCoverageTest {
         assertThat(r.tamperDetected()).isFalse();
     }
 
-    // ---------------------------------------------------------------- el contrato que lee el agente
+    // ---------------------------------------------------------------- the contract the agent reads
 
     @Test
     void la_descripcion_del_tool_mcp_nombra_insercion_truncado_y_ventana() throws Exception {
         String d = LedgerMcpTools.class.getMethod("verifyJournalIntegrity").getAnnotation(Tool.class).description();
-        assertThat(d).contains("INSERCION").contains("truncado").contains("sin encadenar")
+        assertThat(d).contains("INSERTION").contains("truncation").contains("unchained")
                 .contains("unchainedPostings").contains("staleUnchainedPostings");
     }
 }

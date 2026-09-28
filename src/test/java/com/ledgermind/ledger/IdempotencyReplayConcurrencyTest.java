@@ -20,13 +20,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Idempotencia EXACTLY-ONCE bajo CONCURRENCIA: N requests simultaneos con la MISMA idempotencyKey deben
- * aplicar la transferencia UNA sola vez y TODOS recibir el MISMO asiento (replay), sin que ninguno explote.
+ * EXACTLY-ONCE idempotency under CONCURRENCY: N simultaneous requests with the SAME idempotencyKey must
+ * apply the transfer ONLY once and ALL receive the SAME posting (replay), without any of them blowing up.
  *
- * <p>El check-then-insert por si solo NO alcanza: bajo carrera, dos requests pasan juntas el chequeo de
- * idempotencia (ambas ven la clave libre), ambas insertan, y la UNIQUE atrapa a la segunda con una
- * {@code DataIntegrityViolationException}. La operacion correcta es convertir esa violacion en un REPLAY
- * del asiento original, no propagar un 500.
+ * <p>Check-then-insert on its own is NOT enough: under a race, two requests pass the idempotency
+ * check together (both see the key free), both insert, and the UNIQUE catches the second one with a
+ * {@code DataIntegrityViolationException}. The correct behaviour is to turn that violation into a REPLAY
+ * of the original posting, not to propagate a 500.
  */
 @SpringBootTest
 @Testcontainers
@@ -57,7 +57,7 @@ class IdempotencyReplayConcurrencyTest {
         List<Callable<Void>> tasks = new ArrayList<>();
         for (int i = 0; i < CONCURRENT; i++) {
             tasks.add(() -> {
-                startGate.await();                 // largada unica: maxima contencion sobre la misma clave
+                startGate.await();                 // single start signal: maximum contention on the same key
                 try {
                     Posting p = ledger.transfer("external:funding", "wallet:dest", AMOUNT, "same-key");
                     postingIds.add(p.getId());
@@ -77,14 +77,14 @@ class IdempotencyReplayConcurrencyTest {
         }
         pool.shutdown();
 
-        // 1) NADIE explota: una clave repetida bajo carrera es un replay, no un error.
-        assertThat(errors).as("ningun request debe fallar por la carrera de idempotencia").isEmpty();
-        // 2) TODOS reciben el MISMO asiento (replay de la operacion original).
+        // 1) NOBODY blows up: a repeated key under a race is a replay, not an error.
+        assertThat(errors).as("no request must fail because of the idempotency race").isEmpty();
+        // 2) ALL receive the SAME posting (replay of the original operation).
         assertThat(postingIds).hasSize(CONCURRENT);
-        assertThat(Set.copyOf(postingIds)).as("todos los requests devuelven el mismo asiento").hasSize(1);
-        // 3) Existe EXACTAMENTE un asiento con esa clave.
+        assertThat(Set.copyOf(postingIds)).as("all requests return the same posting").hasSize(1);
+        // 3) There is EXACTLY one posting with that key.
         assertThat(postings.findByIdempotencyKey("same-key")).isPresent();
-        // 4) La transferencia se aplico UNA sola vez (el credito es AMOUNT, no N*AMOUNT).
+        // 4) The transfer was applied ONLY once (the credit is AMOUNT, not N*AMOUNT).
         assertThat(ledger.getByAddress("wallet:dest").availableBalance()).isEqualTo(AMOUNT);
     }
 }

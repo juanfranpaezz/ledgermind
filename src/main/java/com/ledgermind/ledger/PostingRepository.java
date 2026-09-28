@@ -15,30 +15,30 @@ public interface PostingRepository extends JpaRepository<Posting, Long> {
     List<Posting> findByDebitAccountIdOrCreditAccountIdOrderByIdDesc(Long debitAccountId, Long creditAccountId);
 
     /**
-     * Asientos con id MAYOR a {@code afterId}, ascendente y de a lotes: paginacion keyset del journal entero sin
-     * pagar el offset. No longer used by {@link AccountBalanceVerifier}, which now aggregates the journal in one
+     * Postings with an id GREATER than {@code afterId}, ascending and in batches: keyset pagination of the whole journal without
+     * paying for the offset. No longer used by {@link AccountBalanceVerifier}, which now aggregates the journal in one
      * SQL statement; currently no caller in src/main.
      */
     List<Posting> findByIdGreaterThanOrderByIdAsc(Long afterId, Limit limit);
 
     /**
-     * Asientos que todavia NO tienen eslabon en la hash-chain, en orden de id, de a lotes.
-     * Se busca por AUSENCIA en {@code posting_hash} (no por un watermark de id): asi un asiento cuyo id
-     * IDENTITY es menor pero commitea DESPUES del watermark no queda nunca sin encadenar (no se saltea).
+     * Postings that do NOT have a link in the hash-chain yet, in id order, in batches.
+     * They are found by ABSENCE from {@code posting_hash} (not by an id watermark): that way a posting whose
+     * IDENTITY id is lower but commits AFTER the watermark is never left unchained (it is not skipped).
      */
     @Query("select p from Posting p where not exists "
             + "(select 1 from PostingHash h where h.postingId = p.id) order by p.id asc")
     List<Posting> findUnchainedOrderByIdAsc(Limit limit);
 
     /**
-     * Cuantos asientos NO tienen eslabon en la hash-chain (misma definicion por AUSENCIA que
-     * {@link #findUnchainedOrderByIdAsc}). La auditoria lo usa para declarar que parte del journal NO cubre.
+     * How many postings do NOT have a link in the hash-chain (same definition by ABSENCE as
+     * {@link #findUnchainedOrderByIdAsc}). The audit uses it to state which part of the journal it does NOT cover.
      */
     @Query("select count(p) from Posting p where not exists "
             + "(select 1 from PostingHash h where h.postingId = p.id)")
     long countUnchained();
 
-    /** Asientos sin eslabon creados ANTES de {@code cutoff}: los que el encadenador ya deberia haber cubierto. */
+    /** Unlinked postings created BEFORE {@code cutoff}: the ones the chainer should already have covered. */
     @Query("select count(p) from Posting p where p.createdAt < :cutoff and not exists "
             + "(select 1 from PostingHash h where h.postingId = p.id)")
     long countUnchainedCreatedBefore(@Param("cutoff") Instant cutoff);

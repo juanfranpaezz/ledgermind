@@ -14,12 +14,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Soporte SOLO para la demo visual ({@code static/index.html}). Existe unicamente bajo el perfil
- * {@code demo}: en produccion estos endpoints NO se cargan. Son cinco, los unicos de /api que un anonimo puede
- * llamar (y solo bajo {@code demo}): POST reset (ledger limpio y firmado), POST idempotency (la misma transferencia
- * dos veces con una clave fija, del lado del server), POST tamper (edicion maliciosa de un asiento por SQL directo,
- * para mostrar EN VIVO que la hash-chain lo detecta), POST reconcile y GET audit. La pagina de la demo debe llamar
- * solo estos cinco: cualquier otro /api pide X-API-Key. No es parte del dominio: es andamiaje de demostracion.
+ * Support ONLY for the visual demo ({@code static/index.html}). It exists only under the
+ * {@code demo} profile: in production these endpoints are NOT loaded. There are five, the only /api endpoints an anonymous caller can
+ * call (and only under {@code demo}): POST reset (clean, signed ledger), POST idempotency (the same transfer
+ * twice with a fixed key, server-side), POST tamper (a malicious edit of a posting by direct SQL,
+ * to show LIVE that the hash-chain detects it), POST reconcile and GET audit. The demo page must call
+ * only these five: any other /api path asks for an X-API-Key. It is not part of the domain: it is demo scaffolding.
  */
 @RestController
 @Profile("demo")
@@ -42,31 +42,31 @@ class DemoSupportController {
         this.jdbc = jdbc;
     }
 
-    /** Reinicia a un escenario limpio: 3 cuentas, 5 transferencias (claves tipo ORD-xxxx), cadena firmada. */
+    /** Resets to a clean scenario: 3 accounts, 5 transfers (ORD-xxxx style keys), signed chain. */
     @PostMapping("/reset")
     DemoMessage reset() {
         jdbc.execute("TRUNCATE journal_checkpoint, posting_hash, posting, account RESTART IDENTITY CASCADE");
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:ana", "ARS", false);
         ledger.createAccount("wallet:beto", "ARS", false);
-        // La idempotencyKey es el id de orden del cliente (sirve de referencia externa para reconciliar).
+        // The idempotencyKey is the client's order id (it serves as the external reference for reconciliation).
         ledger.transfer("external:funding", "wallet:ana", 100_000, "ORD-1001");
         ledger.transfer("external:funding", "wallet:ana", 50_000, "ORD-1002");
         ledger.transfer("wallet:ana", "wallet:beto", 30_000, "ORD-1003");
         ledger.transfer("wallet:ana", "wallet:beto", 12_500, "ORD-1004");
         ledger.transfer("external:funding", "wallet:beto", 8_000, "ORD-1005");
-        // Encadenar y firmar AHORA (no esperar al job async). Si el job @Scheduled corre en paralelo y
-        // gana la carrera, su violacion de PK/UNIQUE es benigna: el scheduler completa la cadena igual.
+        // Chain and sign NOW (do not wait for the async job). If the @Scheduled job runs in parallel and
+        // wins the race, its PK/UNIQUE violation is benign: the scheduler completes the chain anyway.
         try {
             chainer.chainPendingPostings();
             checkpoints.checkpointIfHeadAdvanced();
         } catch (org.springframework.dao.DataIntegrityViolationException raced) {
-            // el job programado ya encadeno/firmo esta cabeza; nada que hacer
+            // the scheduled job already chained/signed this head; nothing to do
         }
-        return new DemoMessage("Estado limpio: 3 cuentas, 5 transferencias (ORD-1001..1005), hash-chain firmada con ML-DSA.");
+        return new DemoMessage("Clean state: 3 accounts, 5 transfers (ORD-1001..1005), hash-chain signed with ML-DSA.");
     }
 
-    /** Reconcilia el ledger contra un feed simulado del PSP (con descuadres inyectados) para la demo. */
+    /** Reconciles the ledger against a simulated PSP feed (with injected discrepancies) for the demo. */
     @PostMapping("/reconcile")
     ReconciliationReport reconcile() {
         return reconciliation.reconcileDemoFeed();
@@ -75,18 +75,18 @@ class DemoSupportController {
     /**
      * Simulates an attacker with DB access who edits the amount of the latest CHAINED posting, so the hash-chain is
      * what breaks. Editing the latest posting instead could hit one the chainer has not linked yet (it runs every
-     * 5 s): then the chain stayed intact and only the balance replay fired (docs-truth gate r3, 2026-09-26).
+ * 5 s): then the chain stayed intact and only the balance replay fired.
      */
     @PostMapping("/tamper")
     DemoMessage tamper() {
         Long id = jdbc.queryForList("SELECT posting_id FROM posting_hash ORDER BY seq DESC LIMIT 1", Long.class)
                 .stream().findFirst().orElse(null);
         if (id == null) {
-            return new DemoMessage("No hay asientos encadenados para alterar. Reinicia la demo primero.");
+            return new DemoMessage("There are no chained postings to alter. Reset the demo first.");
         }
         jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", id);
-        return new DemoMessage("Se altero por SQL directo el monto del asiento #" + id
-                + " (simulando un atacante con acceso a la base). La firma NO se toco.");
+        return new DemoMessage("Direct SQL altered the amount of posting #" + id
+                + " (simulating an attacker with database access). The signature was NOT touched.");
     }
 
     /**

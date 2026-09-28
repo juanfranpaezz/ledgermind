@@ -12,9 +12,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Idempotencia ESTRICTA: una clave identifica UNA operacion. Reusarla con parametros DISTINTOS es un
- * conflicto (no un replay silencioso que engania al cliente); reusarla con los MISMOS parametros es un
- * replay del asiento original.
+ * STRICT idempotency: a key identifies ONE operation. Reusing it with DIFFERENT parameters is a
+ * conflict (not a silent replay that misleads the client); reusing it with the SAME parameters is a
+ * replay of the original posting.
  */
 @SpringBootTest
 @Testcontainers
@@ -33,15 +33,15 @@ class IdempotencyMismatchTest {
         ledger.createAccount("wallet:x", "ARS", false);
         Posting original = ledger.transfer("external:funding", "wallet:x", 100, "k1");
 
-        // misma clave, OTRO monto -> conflicto, NO un replay silencioso
+        // same key, ANOTHER amount -> conflict, NOT a silent replay
         assertThatThrownBy(() -> ledger.transfer("external:funding", "wallet:x", 999, "k1"))
                 .isInstanceOf(IdempotencyConflictException.class);
 
-        // misma clave, MISMOS parametros -> replay del asiento original (sin excepcion)
+        // same key, SAME parameters -> replay of the original posting (no exception)
         Posting replay = ledger.transfer("external:funding", "wallet:x", 100, "k1");
         assertThat(replay.getId()).isEqualTo(original.getId());
 
-        // el credito se aplico UNA sola vez (100); el intento conflictivo no movio nada
+        // the credit was applied ONLY once (100); the conflicting attempt moved nothing
         assertThat(ledger.getByAddress("wallet:x").availableBalance()).isEqualTo(100);
     }
 }

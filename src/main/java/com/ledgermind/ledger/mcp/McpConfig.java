@@ -6,9 +6,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Registra las tools del ledger en el MCP server de Spring AI: las de lectura (scope ledger.read)
- * y las de administracion (scope ledger.admin, p. ej. unfreeze_account). Ninguna mueve dinero.
- * El MCP server (starter webmvc) las expone por el protocolo MCP sobre HTTP.
+ * Registers the ledger tools in the Spring AI MCP server: the read tools (scope ledger.read)
+ * and the administration tools (scope ledger.admin, e.g. unfreeze_account). None of them moves money.
+ * The MCP server (webmvc starter) exposes them over the MCP protocol on HTTP.
  */
 @Configuration
 class McpConfig {

@@ -11,23 +11,23 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * Matcher DETERMINISTA de reconciliacion: cruza el feed de un PSP contra el ledger por la referencia
- * externa (el feed.externalRef matchea la ref del asiento, que es su idempotencyKey). No usa IA: la IA
- * solo NARRA el resultado. Logica pura (sin estado ni dependencias) -> testeable sin base de datos.
+ * DETERMINISTIC reconciliation matcher: it matches a PSP's feed against the ledger by the external
+ * reference (feed.externalRef matches the posting's ref, which is its idempotencyKey). It uses no AI: the AI
+ * only NARRATES the result. Pure logic (no state, no dependencies) -> testable without a database.
  *
- * <p>AGREGA por referencia en AMBOS lados antes de comparar: un PSP puede liquidar una misma orden en
- * varios tramos (split / ajuste / reversa), asi que se suman los importes por ref y se compara la suma.
- * Esto evita que un duplicado en el feed se "matchee" en silencio. Alcance: cruce por **referencia exacta
- * e importe exacto** (sin tolerancia configurable ni ventana temporal); toda diferencia de importe se
- * reporta como {@link Discrepancy.Type#AMOUNT_MISMATCH}. {@code balanced} es true solo si NO hay
- * discrepancias Y el neto cuadra ({@code difference == 0}) — dos errores opuestos no pueden cantar "OK".
+ * <p>It AGGREGATES by reference on BOTH sides before comparing: a PSP can settle the same order in
+ * several parts (split / adjustment / reversal), so the amounts are summed per ref and the sums are compared.
+ * This keeps a duplicate in the feed from being silently "matched". Scope: matching by **exact reference
+ * and exact amount** (no configurable tolerance, no time window); every amount difference is
+ * reported as {@link Discrepancy.Type#AMOUNT_MISMATCH}. {@code balanced} is true only if there are NO
+ * discrepancies AND the net balances ({@code difference == 0}) — two opposite errors cannot report "OK".
  */
 public class ReconciliationMatcher {
 
     public ReconciliationReport reconcile(List<SettlementRecord> feed, List<LedgerEntry> ledger) {
-        // Null-safe por diseño: una ref nula colapsa a "" (un bucket de descuadre) en vez de reventar el
-        // groupingBy con un NPE. El borde (controller) ya rechaza refs vacias; esto blinda al matcher como
-        // funcion pura ante CUALQUIER caller (incl. la demo) sin acoplarlo a esa validacion.
+        // Null-safe by design: a null ref collapses to "" (one discrepancy bucket) instead of blowing up the
+        // groupingBy with an NPE. The edge (controller) already rejects empty refs; this hardens the matcher as a
+        // pure function against ANY caller (incl. the demo) without coupling it to that validation.
         // Sums are exact (BigInteger) and only the FINAL value must fit in 64 bits: the result does not depend on the
         // order of the rows ([MAX, 10, -20] is MAX-10, not an error), and a final value outside the range is rejected.
         Map<String, Long> feedByRef = toLongs(feed.stream().collect(Collectors.groupingBy(
@@ -40,32 +40,32 @@ public class ReconciliationMatcher {
         List<Discrepancy> discrepancies = new ArrayList<>();
         int matched = 0;
 
-        // Lo que el PSP liquidó (por ref) vs lo asentado.
+        // What the PSP settled (per ref) vs what was posted.
         for (Map.Entry<String, Long> e : feedByRef.entrySet()) {
             String ref = e.getKey();
             long feedAmount = e.getValue();
             Long ledgerAmount = ledgerByRef.get(ref);
             if (ledgerAmount == null) {
                 discrepancies.add(new Discrepancy(Discrepancy.Type.MISSING_IN_LEDGER, ref, feedAmount, 0,
-                        "el PSP liquidó " + feedAmount + " para '" + ref + "' y no hay asiento"));
+                        "the PSP settled " + feedAmount + " for '" + ref + "' and there is no posting"));
             } else if (ledgerAmount != feedAmount) {
                 long diff = subtractExact(feedAmount, ledgerAmount);
                 String hint = diff < 0
-                        ? " (el PSP liquidó menos: posible comisión/retención no asentada)"
-                        : " (el PSP liquidó de más que lo asentado)";
+                        ? " (the PSP settled less: possible unposted fee/withholding)"
+                        : " (the PSP settled more than was posted)";
                 discrepancies.add(new Discrepancy(Discrepancy.Type.AMOUNT_MISMATCH, ref, feedAmount, ledgerAmount,
-                        "diferencia de " + diff + " en '" + ref + "'" + hint));
+                        "difference of " + diff + " on '" + ref + "'" + hint));
             } else {
                 matched++;
             }
         }
 
-        // Asientos que el PSP no reporta.
+        // Postings the PSP does not report.
         for (Map.Entry<String, Long> e : ledgerByRef.entrySet()) {
             if (!feedByRef.containsKey(e.getKey())) {
                 discrepancies.add(new Discrepancy(Discrepancy.Type.MISSING_IN_FEED, e.getKey(),
                         0, e.getValue(),
-                        "el ledger tiene " + e.getValue() + " para '" + e.getKey() + "' que el PSP no reporta"));
+                        "the ledger has " + e.getValue() + " for '" + e.getKey() + "' that the PSP does not report"));
             }
         }
 
@@ -77,9 +77,9 @@ public class ReconciliationMatcher {
         long difference = subtractExact(feedTotal, ledgerTotal);
         boolean balanced = discrepancies.isEmpty() && difference == 0;
         String summary = balanced
-                ? "Conciliado: " + matched + " referencias cuadran; feed y ledger coinciden en " + feedTotal + " centavos."
-                : "Descuadre: " + discrepancies.size() + " discrepancia(s). Feed=" + feedTotal
-                        + " Ledger=" + ledgerTotal + " (diferencia " + difference + ").";
+                ? "Reconciled: " + matched + " references balance; feed and ledger agree on " + feedTotal + " cents."
+                : "Mismatch: " + discrepancies.size() + " discrepancy(ies). Feed=" + feedTotal
+                        + " Ledger=" + ledgerTotal + " (difference " + difference + ").";
 
         return new ReconciliationReport(feed.size(), ledger.size(), matched,
                 feedTotal, ledgerTotal, difference, discrepancies, balanced, summary);

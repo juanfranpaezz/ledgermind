@@ -5,6 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface JournalCheckpointRepository extends JpaRepository<JournalCheckpoint, Long> {
 
-    /** El ultimo checkpoint firmado. */
+    /** The latest signed checkpoint. */
     Optional<JournalCheckpoint> findTopByOrderByIdDesc();
 }

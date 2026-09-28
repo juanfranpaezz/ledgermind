@@ -25,10 +25,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * El verdict de cobertura tiene que decir la CAUSA verdadera de un asiento sin eslabon viejo: encadenador detenido,
- * encadenador atrasado por carga (transitorio), o un asiento que aparecio despues de que el encadenador vacio su cola
- * (la unica senal de insercion por fuera de la app). Antes el verdict decia "o se insertaron por fuera de la app o el
- * encadenador esta detenido" aun bajo una rafaga legitima sin ninguna manipulacion: las dos mitades eran falsas.
+ * The coverage verdict has to state the TRUE cause of an old unlinked posting: chainer stopped,
+ * chainer behind because of load (transient), or a posting that appeared after the chainer drained its queue
+ * (the only sign of an insertion outside the app). The verdict used to say "either they were inserted outside the app or the
+ * chainer is stopped" even under a legitimate burst with no tampering at all: both halves were false.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",
@@ -71,7 +71,7 @@ class ChainerStateVerdictTest {
         return sb.toString();
     }
 
-    // ------------------------------------------------------------ causas y motivo de cobertura, con reloj fijo
+    // ------------------------------------------------------------ causes and coverage reason, with a fixed clock
 
     @Test
     void estado_1_detenido_sin_actividad_hace_mas_de_3_ciclos() {
@@ -79,8 +79,8 @@ class ChainerStateVerdictTest {
                 .isEqualTo(StaleCause.CHAINER_STOPPED);
         Coverage c = cov(StaleCause.CHAINER_STOPPED, 5, 5, 0, 16_000, 5_000);
         assertThat(JournalCheckpointService.coverageReason(c, true)).isEqualTo(CoverageReason.DETENIDO);
-        assertThat(clause(c)).contains("DETENIDO").contains("16 s").doesNotContain("por fuera")
-                .doesNotContain("senal de un asiento insertado");
+        assertThat(clause(c)).contains("STOPPED").contains("16 s").doesNotContain("outside the app")
+                .doesNotContain("sign of a posting inserted");
     }
 
     @Test
@@ -89,8 +89,8 @@ class ChainerStateVerdictTest {
                 .isEqualTo(StaleCause.CHAINER_BEHIND);
         Coverage c = cov(StaleCause.CHAINER_BEHIND, 3200, 1170, 0, 1_000, 80_000);
         assertThat(JournalCheckpointService.coverageReason(c, false)).isEqualTo(CoverageReason.ATRASADO);
-        assertThat(clause(c)).contains("ATRASADO").contains("TRANSITORIO").contains("re-auditar en ~80 s")
-                .contains("NO es evidencia de manipulacion").doesNotContain("por fuera").doesNotContain("DETENIDO");
+        assertThat(clause(c)).contains("BEHIND").contains("TRANSIENT").contains("re-audit in ~80 s")
+                .contains("NOT evidence of tampering").doesNotContain("outside the app").doesNotContain("STOPPED");
     }
 
     @Test
@@ -98,14 +98,14 @@ class ChainerStateVerdictTest {
         assertThat(JournalCheckpointService.classifyStale(0, NOW, NOW.minusSeconds(3600), DELAY))
                 .isEqualTo(StaleCause.NONE);
         Coverage c = cov(StaleCause.NONE, 1, 1, 1, 5_000, 5_000);
-        assertThat(clause(c)).contains("insertado por fuera de la app").doesNotContain("DETENIDO")
-                .doesNotContain("ATRASADO");
+        assertThat(clause(c)).contains("inserted outside the app").doesNotContain("STOPPED")
+                .doesNotContain("BEHIND");
         assertThat(JournalCheckpointService.coverageReason(c, true)).isNull();
         assertThat(JournalCheckpointService.coverageReason(c, false)).isEqualTo(CoverageReason.SIN_CHECKPOINT);
-        assertThat(JournalCheckpointService.seconds(900)).isEqualTo("0,9 s");      // antes "0 s"
+        assertThat(JournalCheckpointService.seconds(900)).isEqualTo("0,9 s");      // formerly "0 s"
     }
 
-    // ------------------------------------------------------------ integracion sobre postgres real
+    // ------------------------------------------------------------ integration on real postgres
 
     @Test
     void rafaga_legitima_sin_manipulacion_no_dice_insercion_por_fuera() {
@@ -115,12 +115,12 @@ class ChainerStateVerdictTest {
         for (int i = 0; i < n; i++) {
             ledger.transfer("external:funding", "wallet:a", 10, "burst-" + i);
         }
-        // Simula el paso del tiempo (ventana efectiva de este test = 3 h) ANTES de la pasada: nadie toca montos,
-        // cuentas ni contadores. (Un UPDATE de fecha DESPUES de la pasada es, correctamente, evidencia de escritura
-        // por fuera: por eso la simulacion va antes.)
+        // Simulates the passage of time (this test's effective window = 3 h) BEFORE the pass: nobody touches amounts,
+        // accounts or counters. (A date UPDATE AFTER the pass is, correctly, evidence of a write
+        // outside the app: that is why the simulation goes before.)
         int shifted = jdbc.update("UPDATE posting SET created_at = created_at - interval '4 hours'");
         assertThat(shifted).isEqualTo(n);
-        chainer.chainPendingPostings();                   // encadena 200 de 450: lleno el lote -> backlog
+        chainer.chainPendingPostings();                   // chains 200 of 450: it filled the batch -> backlog
         assertThat(jdbc.queryForObject("SELECT hit_batch_limit FROM journal_chainer_state WHERE id = 1",
                 Boolean.class)).isTrue();
 
@@ -129,20 +129,20 @@ class ChainerStateVerdictTest {
         assertThat(r.balancesConsistent()).isTrue();
         assertThat(r.chainIntact()).isTrue();
         assertThat(r.staleUnchainedPostings()).isEqualTo(n - 200);
-        assertThat(r.tamperDetected()).isFalse();         // decision del dueno: tamper = solo evidencia confirmada
+        assertThat(r.tamperDetected()).isFalse();         // tamper = only confirmed evidence
         assertThat(r.coverageDegraded()).isTrue();
         assertThat(r.coverageReason()).isEqualTo(CoverageReason.ATRASADO);
-        assertThat(r.verdict()).doesNotContain("por fuera").doesNotContain("senal de un asiento insertado")
-                .doesNotContain("MANIPULACION DETECTADA").contains("ALERTA DE COBERTURA").contains("ATRASADO")
-                .contains("TRANSITORIO").contains("SIN CHECKPOINT FIRMADO");
+        assertThat(r.verdict()).doesNotContain("outside the app").doesNotContain("sign of a posting inserted")
+                .doesNotContain("TAMPER DETECTED").contains("COVERAGE ALERT").contains("BEHIND")
+                .contains("TRANSIENT").contains("NO SIGNED CHECKPOINT");
 
         chainer.chainPendingPostings();
-        chainer.chainPendingPostings();                   // 200 + 50: vacia la cola
+        chainer.chainPendingPostings();                   // 200 + 50: drains the queue
         JournalIntegrityReport after = checkpoints.audit();
         System.out.println("[VERDICT][burst-drained] tamper=" + after.tamperDetected() + " verdict=" + after.verdict());
         assertThat(after.tamperDetected()).isFalse();
         assertThat(after.unchainedPostings()).isZero();
-        assertThat(after.coverageReason()).isEqualTo(CoverageReason.SIN_CHECKPOINT);   // ya no atrasado; sin firma aun
+        assertThat(after.coverageReason()).isEqualTo(CoverageReason.SIN_CHECKPOINT);   // no longer behind; not signed yet
     }
 
     @Test
@@ -151,7 +151,7 @@ class ChainerStateVerdictTest {
         ledger.createAccount("wallet:a", "ARS", false);
         ledger.createAccount("wallet:b", "ARS", false);
         ledger.transfer("external:funding", "wallet:a", 100_000, "seed-a");
-        chainer.chainPendingPostings();                   // vacia la cola (1 < 200); aun sin checkpoint firmado
+        chainer.chainPendingPostings();                   // drains the queue (1 < 200); still no signed checkpoint
         jdbc.update("INSERT INTO posting (debit_account_id, credit_account_id, amount, asset, idempotency_key, created_at)"
                 + " VALUES (1, 3, 777000, 'ARS', 'FORGED-OLD', now() - interval '1 day')");
         jdbc.update("UPDATE account SET posted_debits = posted_debits + 777000 WHERE id = 1");
@@ -161,16 +161,16 @@ class ChainerStateVerdictTest {
         System.out.println("[VERDICT][passed] tamper=" + r.tamperDetected() + " verdict=" + r.verdict());
         assertThat(r.tamperDetected()).isTrue();
         assertThat(r.checkpointPresent()).isFalse();
-        assertThat(r.verdict()).contains("MANIPULACION DETECTADA").contains("insertado")
-                .contains("por fuera de la app").contains("SIN CHECKPOINT FIRMADO TODAVIA").contains("no aplica")
-                .doesNotContain("DETENIDO").doesNotContain("ATRASADO");
+        assertThat(r.verdict()).contains("TAMPER DETECTED").contains("inserted")
+                .contains("outside the app").contains("NO SIGNED CHECKPOINT YET").contains("not applicable")
+                .doesNotContain("STOPPED").doesNotContain("BEHIND");
     }
 
     /**
-     * Causa 4 del gate 2026-09-24 (la que dio 13 de 80 "por fuera" en una rafaga limpia): una transaccion LEGITIMA que
-     * sigue abierta mientras pasa el encadenador (contencion, reintentos, esperas de deadlock) y confirma despues con un
-     * created_at mas viejo que la ventana. No es evidencia de insercion por fuera: su xid ya existia cuando el
-     * encadenador tomo su foto. Deterministico: la misma transaccion (mismo xid) envejece su created_at 5 h.
+     * Cause 4 (the one that produced 13 of 80 "outside the app" flags in a clean burst): a LEGITIMATE transaction that
+     * stays open while the chainer passes (contention, retries, deadlock waits) and commits afterwards with a
+     * created_at older than the window. It is not evidence of an insertion outside the app: its xid already existed when the
+     * chainer took its snapshot. Deterministic: the same transaction (same xid) ages its created_at by 5 h.
      */
     @Test
     void transaccion_legitima_abierta_durante_la_pasada_del_encadenador_no_es_insercion_por_fuera() throws Exception {
@@ -193,7 +193,7 @@ class ChainerStateVerdictTest {
             }
         }));
         assertThat(inserted.await(30, TimeUnit.SECONDS)).isTrue();
-        chainer.chainPendingPostings();                   // pasa con la transaccion legitima abierta: no la ve
+        chainer.chainPendingPostings();                   // passes with the legitimate transaction open: it does not see it
         release.countDown();
         slow.get(30, TimeUnit.SECONDS);
         ex.shutdown();
@@ -203,12 +203,12 @@ class ChainerStateVerdictTest {
         assertThat(r.staleUnchainedPostings()).isEqualTo(1);
         assertThat(r.balancesConsistent()).isTrue();
         assertThat(r.tamperDetected()).isFalse();
-        assertThat(r.verdict()).doesNotContain("por fuera").doesNotContain("MANIPULACION DETECTADA");
+        assertThat(r.verdict()).doesNotContain("outside the app").doesNotContain("TAMPER DETECTED");
         assertThat(r.coverageDegraded()).isTrue();
         assertThat(r.coverageReason()).isEqualTo(CoverageReason.ATRASADO);
     }
 
-    /** Control positivo CON checkpoint firmado: la insercion por fuera con fecha vieja se sigue detectando. */
+    /** Positive control WITH a signed checkpoint: the insertion outside the app with an old date is still detected. */
     @Test
     void insercion_por_fuera_con_fecha_vieja_despues_de_la_pasada_se_detecta_con_checkpoint_firmado() {
         ledger.createAccount("external:funding", "ARS", true);
@@ -228,7 +228,7 @@ class ChainerStateVerdictTest {
         assertThat(r.chainIntact()).isTrue();
         assertThat(r.balancesConsistent()).isTrue();
         assertThat(r.tamperDetected()).isTrue();
-        assertThat(r.verdict()).contains("MANIPULACION DETECTADA").contains("insertado por fuera de la app");
-        assertThat(r.coverageDegraded()).isFalse();                   // hay checkpoint y nada pendiente: no degradada
+        assertThat(r.verdict()).contains("TAMPER DETECTED").contains("inserted outside the app");
+        assertThat(r.coverageDegraded()).isFalse();                   // there is a checkpoint and nothing pending: not degraded
     }
 }

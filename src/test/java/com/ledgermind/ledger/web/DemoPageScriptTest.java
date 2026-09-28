@@ -24,7 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 /**
  * The demo page ({@code static/index.html}) in the profile it ships in: it may call only the anonymous
  * {@code /api/demo/*} endpoints, and it must never render a check mark from a non-2xx answer or from a missing field
- * (docs-truth gate r3, 2026-09-26: the page called three keyed paths, got 401, and still showed three green results).
+ * (the page once called three keyed paths, got 401, and still showed three green results).
  *
  * <p>The runtime cases run the page's OWN inline script in node ({@code src/test/resources/demo-page/page-harness.mjs})
  * with a DOM stub: once against this live demo-profile app with no credentials, once with every call answering a
@@ -69,16 +69,16 @@ class DemoPageScriptTest {
         }
         assertThat(run.path("calls")).hasSize(6);   // reset, idempotency, tamper, audit (after tamper), audit, reconcile
         JsonNode out = run.path("outputs");
-        assertThat(out.path("resetMsg").asText()).startsWith("Estado limpio");
+        assertThat(out.path("resetMsg").asText()).startsWith("Clean state");
         assertThat(out.path("idem").asText())
-                .containsPattern("asiento id=\\d+\\n")
-                .contains("✓ mismo asiento", "✓ beto recibió 5000 una sola vez")
+                .containsPattern("posting id=\\d+\\n")
+                .contains("✓ same posting", "✓ beto received 5000 only once")
                 .doesNotContain("✗");
         assertThat(out.path("tamper").asText())
                 .contains("✓ signatureValid", "✓ chainIntact = false")
                 .doesNotContain("✗");
         assertThat(out.path("audit").asText()).contains("✗ tamperDetected = TRUE");
-        assertThat(out.path("reconcile").asText()).contains("descuadre(s)");
+        assertThat(out.path("reconcile").asText()).contains("discrepancy(ies)");
     }
 
     @Test
@@ -100,11 +100,11 @@ class DemoPageScriptTest {
 
     @Test
     void a_network_error_renders_a_failure_never_a_stuck_progress_text() throws Exception {
-        // round-3 docs-truth gate R4: reset() had no catch, so a rejected fetch left "reiniciando…" on screen.
+        // reset() used to have no catch, so a rejected fetch left "resetting…" on screen.
         JsonNode run = runPageScript("networkError");
         JsonNode out = run.path("outputs");
         assertThat(out.path("resetMsg").asText()).as("resetMsg")
-                .contains("✗").contains("falló").doesNotContain("reiniciando");
+                .contains("✗").contains("failed").doesNotContain("resetting");
         for (String demo : DEMOS) {
             assertThat(out.path(demo).asText()).as(demo).startsWith("error: ").doesNotContain("✓");
         }

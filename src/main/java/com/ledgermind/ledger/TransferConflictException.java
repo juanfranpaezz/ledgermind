@@ -1,10 +1,10 @@
 package com.ledgermind.ledger;
 
-/** Se lanza cuando una transferencia pierde la carrera de concurrencia demasiadas veces seguidas. */
+/** Thrown when a transfer loses the concurrency race too many times in a row. */
 public class TransferConflictException extends RuntimeException {
 
     public TransferConflictException(int attempts) {
-        super("La transferencia no pudo aplicarse tras " + attempts
-                + " intentos por contencion de concurrencia");
+        super("The transfer could not be applied after " + attempts
+                + " attempts due to concurrency contention");
     }
 }

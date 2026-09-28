@@ -25,10 +25,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * A4 del gate 2026-09-24, EN VIVO: rafaga LIMPIA (cero manipulacion) de 8 s con los schedulers reales, el encadenador
- * cada 300 ms y la ventana en su PISO (3 ciclos = 900 ms), el barrido cada 200 ms y la auditoria en loop. En el gate
- * esta misma rafaga dio 13 de 80 auditorias "insertado por fuera de la app" y 16 MANIPULACION DETECTADA por descuadre de
- * saldos. Criterio: 0 "por fuera", 0 MANIPULACION DETECTADA, 0 tamperDetected, 0 cuentas congeladas.
+ * LIVE: a CLEAN burst (zero tampering) of 8 s with the real schedulers, the chainer
+ * every 300 ms and the window at its FLOOR (3 cycles = 900 ms), the sweep every 200 ms and the audit in a loop. Before the fix
+ * this same burst gave 13 of 80 audits "inserted outside the app" and 16 TAMPER DETECTED from a balance
+ * mismatch. Criterion: 0 "outside the app", 0 TAMPER DETECTED, 0 tamperDetected, 0 frozen accounts.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=300",
@@ -51,13 +51,13 @@ class LiveBurstFloorGraceTest {
     @Autowired
     private JdbcTemplate jdbc;
 
-    /** Lo que vio la auditoria durante la rafaga. */
+    /** What the audit saw during the burst. */
     record BurstResult(long transfersOk, long transfersFailed, long audits, long porFuera, long manipulacion,
                        long tamper, long degradedAtrasado, long degradedDetenido, long staleSeen, long activeFlags,
                        Map<String, Integer> histogram) {
     }
 
-    /** 10 hilos de transferencias reales durante {@code burstMs} (8 desde funding, 2 entre wallets), auditoria en loop. */
+    /** 10 threads of real transfers during {@code burstMs} (8 from funding, 2 between wallets), audit in a loop. */
     static BurstResult runBurst(LedgerService ledger, JournalCheckpointService checkpoints, JdbcTemplate jdbc,
                                 long burstMs, long settleMs) throws Exception {
         ledger.createAccount("external:funding", "ARS", true);
@@ -84,7 +84,7 @@ class LiveBurstFloorGraceTest {
                         }
                         ok.incrementAndGet();
                     } catch (Exception e) {
-                        failed.incrementAndGet();                   // p.ej. reintentos agotados por contencion
+                        failed.incrementAndGet();                   // e.g. retries exhausted by contention
                     }
                 }
             });
@@ -102,10 +102,10 @@ class LiveBurstFloorGraceTest {
                 JournalIntegrityReport r = checkpoints.audit();
                 audits.incrementAndGet();
                 String v = r.verdict();
-                if (v.contains("por fuera")) {
+                if (v.contains("outside the app")) {
                     porFuera.incrementAndGet();
                 }
-                if (v.contains("MANIPULACION DETECTADA")) {
+                if (v.contains("TAMPER DETECTED")) {
                     manip.incrementAndGet();
                 }
                 if (r.tamperDetected()) {
@@ -129,7 +129,7 @@ class LiveBurstFloorGraceTest {
         stop.set(true);
         Thread.sleep(settleMs);
         stopPoll.set(true);
-        poller.get(30, TimeUnit.SECONDS);                           // una excepcion de la auditoria falla el test
+        poller.get(30, TimeUnit.SECONDS);                           // an exception from the audit fails the test
         pool.shutdown();
         pool.awaitTermination(30, TimeUnit.SECONDS);
         long flags = jdbc.queryForObject("SELECT count(*) FROM overdraft_flag WHERE cleared_at IS NULL", Long.class);

@@ -8,8 +8,8 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * Un eslabon de la hash-chain del journal (tamper-evidence). Append-only e inmutable, igual que
- * {@link Posting}. La calcula {@link JournalChainer} de forma asincrona; el posting nunca se toca.
+ * A link of the journal's hash-chain (tamper-evidence). Append-only and immutable, just like
+ * {@link Posting}. {@link JournalChainer} computes it asynchronously; the posting is never touched.
  */
 @Entity
 @Table(name = "posting_hash")
@@ -32,7 +32,7 @@ public class PostingHash {
     private Instant computedAt;
 
     protected PostingHash() {
-        // requerido por JPA
+        // required by JPA
     }
 
     public PostingHash(Long postingId, long seq, String prevHash, String entryHash) {

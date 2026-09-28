@@ -18,13 +18,13 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * Hash-chain del journal (tamper-evidence, patron AWS QLDB).
+ * Journal hash-chain (tamper-evidence, AWS QLDB pattern).
  *
- * <p>Recorre los asientos nuevos por id y los encadena en {@code posting_hash} (append-only):
- * {@code entry_hash = SHA-256(prev_hash || canonical(posting))}. Corre ASINCRONO (fuera del hot
- * path de las transferencias) para no serializar la concurrencia ya lograda. {@link #verify()}
- * recomputa la cadena desde el contenido ACTUAL de los asientos: si alguien edita uno viejo, su
- * hash deja de cuadrar y se detecta el punto exacto de la ruptura.
+ * <p>Walks the new postings by id and chains them in {@code posting_hash} (append-only):
+ * {@code entry_hash = SHA-256(prev_hash || canonical(posting))}. It runs ASYNCHRONOUSLY (outside the transfers'
+ * hot path) so as not to serialize the concurrency already achieved. {@link #verify()}
+ * recomputes the chain from the CURRENT content of the postings: if someone edits an old one, its
+ * hash stops matching and the exact break point is detected.
  */
 @Component
 public class JournalChainer {
@@ -37,19 +37,19 @@ public class JournalChainer {
 
     private final JdbcTemplate jdbc;
 
-    // Estado del encadenador para el verdict de la auditoria. Lo que vale es lo COMMITEADO: cada corrida escribe
-    // journal_chainer_state (inicio, foto, fin, si lleno el lote) en la MISMA transaccion que sus eslabones, asi la
-    // auditoria lo lee en su misma foto. (Antes era un sello en memoria tomado ANTES del commit: durante un commit
-    // lento la auditoria veia "cola vaciada" con los eslabones todavia invisibles.) En memoria queda solo lo que no se
-    // puede commitear: cuando arranco esta JVM y si hay una corrida EN CURSO (para no llamar DETENIDO a una lenta).
+    // Chainer state for the audit verdict. What counts is what is COMMITTED: every run writes
+    // journal_chainer_state (start, snapshot, end, whether it filled the batch) in the SAME transaction as its links, so the
+    // audit reads it in its own snapshot. (It used to be an in-memory stamp taken BEFORE the commit: during a slow commit
+    // the audit saw "queue drained" with the links still invisible.) Only what cannot be committed stays in memory:
+    // when this JVM started and whether a run is IN PROGRESS (so a slow run is not called DETENIDO).
     private final Instant bootedAt = Instant.now();
     private volatile Instant runningSince;
     private volatile Instant lastCommittedAt;
 
     /**
-     * Vida del encadenador en esta JVM (solo para DETENIDO vs ATRASADO, nunca para evidencia): arranque, corrida en curso
-     * ({@code null} = ninguna) y ultimo commit visto DESPUES de commitear (el run_finished_at de la DB se toma antes del
-     * flush de los eslabones, que bajo carga puede tardar).
+     * Life of the chainer in this JVM (only for DETENIDO vs ATRASADO, never for evidence): startup, run in progress
+     * ({@code null} = none) and the last commit seen AFTER committing (the DB's run_finished_at is taken before the
+     * flush of the links, which under load can take a while).
      */
     public record Liveness(Instant bootedAt, Instant runningSince, Instant lastCommittedAt, int batchSize) {
     }
@@ -64,7 +64,7 @@ public class JournalChainer {
         this.jdbc = jdbc;
     }
 
-    /** Encadena los asientos pendientes. Async (cada 5s); tambien se puede llamar directo (tests). */
+    /** Chains the pending postings. Async (every 5s); it can also be called directly (tests). */
     @Scheduled(fixedDelayString = "${ledgermind.journal.chain-delay-ms:5000}")
     @Transactional
     public void chainPendingPostings() {
@@ -77,26 +77,26 @@ public class JournalChainer {
                     if (status == STATUS_COMMITTED) {
                         lastCommittedAt = Instant.now();
                     }
-                    runningSince = null;                // despues del commit (o rollback), no antes
+                    runningSince = null;                // after the commit (or rollback), not before
                 }
             });
         }
-        // xid de ESTA pasada, tomado antes de leer la cola: todo xid mayor se asigno despues (lo usa la auditoria). No
-        // sirve pg_snapshot_xmax: es el ultimo xid COMPLETADO + 1, y una transaccion abierta con xid mayor quedaria
-        // como "posterior" aunque ya existiera.
+        // xid of THIS pass, taken before reading the queue: any higher xid was assigned afterwards (the audit uses it). pg_snapshot_xmax
+        // does not work: it is the last COMPLETED xid + 1, and an open transaction with a higher xid would count
+        // as "later" even though it already existed.
         Long passXid = jdbc.queryForObject("SELECT pg_current_xact_id()::text::bigint", Long.class);
         PostingHash head = hashes.findTopByOrderBySeqDesc().orElse(null);
         long seq = head != null ? head.getSeq() : 0L;
         String prev = head != null ? head.getEntryHash() : GENESIS;
-        // Por AUSENCIA en posting_hash (no por watermark de id): un asiento con id menor que commitea
-        // tarde no queda sin encadenar (antes, findByIdGreaterThan lo salteaba para siempre).
+        // By ABSENCE from posting_hash (not by an id watermark): a posting with a lower id that commits
+        // late is not left unchained (before, findByIdGreaterThan skipped it forever).
         List<Posting> pending = postings.findUnchainedOrderByIdAsc(Limit.of(BATCH));
         for (Posting p : pending) {
             String entry = entryHash(prev, p);
             hashes.save(new PostingHash(p.getId(), ++seq, prev, entry));
             prev = entry;
         }
-        // Estado COMMITEADO: en la MISMA transaccion que los eslabones (visible para la auditoria solo junto con ellos).
+        // COMMITTED state: in the SAME transaction as the links (visible to the audit only together with them).
         jdbc.update("INSERT INTO journal_chainer_state (id, run_started_at, pass_xid, run_finished_at, chained,"
                         + " hit_batch_limit) VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET"
                         + " run_started_at = excluded.run_started_at, pass_xid = excluded.pass_xid,"
@@ -132,10 +132,10 @@ public class JournalChainer {
             for (PostingHash link : batch) {
                 Posting p = byId.get(link.getPostingId());
                 if (p == null) {
-                    return new VerifyResult(false, checked, link.getSeq());       // asiento borrado
+                    return new VerifyResult(false, checked, link.getSeq());       // posting deleted
                 }
                 if (!prev.equals(link.getPrevHash()) || !entryHash(prev, p).equals(link.getEntryHash())) {
-                    return new VerifyResult(false, checked, link.getSeq());       // contenido alterado / cadena rota
+                    return new VerifyResult(false, checked, link.getSeq());       // content altered / chain broken
                 }
                 prev = link.getEntryHash();
                 checked++;
@@ -164,11 +164,11 @@ public class JournalChainer {
             }
             return sb.toString();
         } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 no disponible", e);
+            throw new IllegalStateException("SHA-256 not available", e);
         }
     }
 
-    /** Resultado de verificar la integridad de la cadena. */
+    /** Result of verifying the integrity of the chain. */
     public record VerifyResult(boolean intact, long chainedCount, Long brokenAtSeq) {
     }
 }

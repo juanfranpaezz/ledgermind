@@ -1,4 +1,4 @@
-# Config de Prometheus: scrapea el endpoint de Micrometer del app por la red interna del compose.
+# Prometheus config: scrapes the app's Micrometer endpoint over the compose internal network.
 global:
   scrape_interval: 5s
   evaluation_interval: 5s
@@ -7,4 +7,4 @@ scrape_configs:
   - job_name: ledgermind
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ['app:8080']   # 'app' = nombre del servicio en docker-compose.observability.yml
+      - targets: ['app:8080']   # 'app' = the service name in docker-compose.observability.yml

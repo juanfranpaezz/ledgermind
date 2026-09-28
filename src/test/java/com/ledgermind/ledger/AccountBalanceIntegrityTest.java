@@ -14,15 +14,15 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Integridad de los contadores de saldo contra el journal.
+ * Integrity of the balance counters against the journal.
  *
- * <p>Los contadores {@code posted_debits} / {@code posted_credits} se adelantan con {@code +=} al
- * escribir el asiento y NUNCA se recomputan: si el importe de un asiento se edita despues, el contador
- * conserva la cuenta vieja y el journal la nueva. Estos tests prueban que el chequeo nuevo da los DOS
- * resultados sobre un caso realista: VERDE sobre un ledger intacto y ROJO sobre uno alterado por SQL
- * directo (el mismo vector que usa la demo: {@code UPDATE posting SET amount = amount + 1}).
+ * <p>The {@code posted_debits} / {@code posted_credits} counters are advanced with {@code +=} when the
+ * posting is written and are NEVER recomputed: if a posting's amount is edited afterwards, the counter
+ * keeps the old arithmetic and the journal the new one. These tests prove that the new check gives BOTH
+ * outcomes on a realistic case: GREEN on an intact ledger and RED on one altered by direct
+ * SQL (the same vector the demo uses: {@code UPDATE posting SET amount = amount + 1}).
  *
- * <p>Los jobs programados se desactivan (delay enorme) para que el test sea determinista.
+ * <p>The scheduled jobs are disabled (huge delay) so that the test is deterministic.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",
@@ -51,7 +51,7 @@ class AccountBalanceIntegrityTest {
         jdbc.execute("TRUNCATE journal_checkpoint, posting_hash, posting, account RESTART IDENTITY CASCADE");
     }
 
-    /** El escenario exacto de la demo: 3 cuentas, 5 transferencias (ORD-1001..1005), encadenado y firmado. */
+    /** The exact demo scenario: 3 accounts, 5 transfers (ORD-1001..1005), chained and signed. */
     private void seedDemoLedger() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:ana", "ARS", false);
@@ -72,34 +72,34 @@ class AccountBalanceIntegrityTest {
         seedDemoLedger();
 
         var result = balances.verify();
-        System.out.println("[BALANCE-CHECK][VERDE] " + result);
+        System.out.println("[BALANCE-CHECK][GREEN] " + result);
 
         assertThat(result.consistent()).isTrue();
         assertThat(result.mismatches()).isEmpty();
         assertThat(result.accountsChecked()).isEqualTo(3);
         assertThat(result.postingsReplayed()).isEqualTo(5);
 
-        // y el audit consolidado (lo que leen la API, el tool MCP y la demo) lo refleja
+        // and the consolidated audit (what the API, the MCP tool and the demo read) reflects it
         var audit = checkpoints.audit();
         assertThat(audit.balancesConsistent()).isTrue();
         assertThat(audit.balanceMismatches()).isEmpty();
         assertThat(audit.tamperDetected()).isFalse();
-        assertThat(audit.verdict()).contains("SIN EVIDENCIA DE EDICION");
+        assertThat(audit.verdict()).contains("NO EVIDENCE OF EDITING");
     }
 
-    // ---------- ROJO: un asiento editado por SQL directo ----------
+    // ---------- RED: a posting edited by direct SQL ----------
 
     @Test
     void un_asiento_editado_por_SQL_deja_el_contador_en_desacuerdo_con_el_journal() {
         seedDemoLedger();
 
-        // Atacante con acceso a la base: le suma 1 centavo al ultimo asiento (ORD-1005, 8.000 -> 8.001).
-        // Los contadores de las dos cuentas involucradas NO se tocan: siguen con la aritmetica vieja.
+        // Attacker with database access: adds 1 cent to the last posting (ORD-1005, 8,000 -> 8,001).
+        // The counters of the two accounts involved are NOT touched: they keep the old arithmetic.
         Long lastId = jdbc.queryForObject("SELECT max(id) FROM posting", Long.class);
         jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", lastId);
 
         var result = balances.verify();
-        result.mismatches().forEach(m -> System.out.println("[BALANCE-CHECK][ROJO] " + m.describe()));
+        result.mismatches().forEach(m -> System.out.println("[BALANCE-CHECK][RED] " + m.describe()));
 
         assertThat(result.consistent()).isFalse();
         assertThat(result.mismatches()).hasSize(2);
@@ -116,23 +116,23 @@ class AccountBalanceIntegrityTest {
         assertThat(beto.postedCreditsDifference()).isEqualTo(-1);
         assertThat(beto.describe()).contains("50500").contains("50501");
 
-        // El numero que hoy cotiza el gate de descubierto sigue siendo el viejo: 50500, no 50501.
-        // (Esta asercion DOCUMENTA la exposicion; este cambio no re-cablea availableBalance.)
+        // The number the overdraft gate uses today is still the old one: 50500, not 50501.
+        // (This assertion DOCUMENTS the exposure; this change does not re-wire availableBalance.)
         assertThat(ledger.getByAddress("wallet:beto").availableBalance()).isEqualTo(50_500);
 
         var audit = checkpoints.audit();
         assertThat(audit.balancesConsistent()).isFalse();
         assertThat(audit.balanceMismatches()).hasSize(2);
         assertThat(audit.tamperDetected()).isTrue();
-        assertThat(audit.verdict()).contains("los contadores de saldo NO cierran contra el journal");
+        assertThat(audit.verdict()).contains("the balance counters do NOT balance against the journal");
         assertThat(audit.verdict()).contains("158000").contains("158001");
-        System.out.println("[BALANCE-CHECK][ROJO][verdict] " + audit.verdict());
+        System.out.println("[BALANCE-CHECK][RED][verdict] " + audit.verdict());
     }
 
     /**
-     * El chequeo nuevo NO es redundante con la hash-chain: si el asiento alterado todavia no estaba
-     * encadenado, {@code chainIntact} sigue en true y la firma verifica, y sin este chequeo el audit
-     * diria "sin evidencia de edicion" con los contadores ya desfasados.
+     * The new check is NOT redundant with the hash-chain: if the altered posting was not chained
+     * yet, {@code chainIntact} stays true and the signature verifies, and without this check the audit
+     * would say "no evidence of editing" with the counters already out of step.
      */
     @Test
     void detecta_el_tamper_de_un_asiento_aun_NO_encadenado_que_la_hash_chain_no_ve() {
@@ -142,24 +142,24 @@ class AccountBalanceIntegrityTest {
         chainer.chainPendingPostings();
         assertThat(checkpoints.checkpointIfHeadAdvanced()).isPresent();
 
-        // asiento nuevo que todavia NO paso por el encadenador (ventana async normal)
-        Posting sinEncadenar = ledger.transfer("external:funding", "wallet:beto", 5_000, "aun-sin-encadenar");
-        jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", sinEncadenar.getId());
+        // a new posting that has NOT gone through the chainer yet (normal async window)
+        Posting notYetChained = ledger.transfer("external:funding", "wallet:beto", 5_000, "not-yet-chained");
+        jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", notYetChained.getId());
 
         var audit = checkpoints.audit();
-        assertThat(audit.chainIntact()).isTrue();              // la cadena no ve ese asiento: sigue limpia
-        assertThat(audit.signatureValid()).isTrue();           // la firma tampoco se toco
+        assertThat(audit.chainIntact()).isTrue();              // the chain does not see that posting: still clean
+        assertThat(audit.signatureValid()).isTrue();           // the signature was not touched either
         assertThat(audit.signedHeadStillInChain()).isTrue();
-        assertThat(audit.balancesConsistent()).isFalse();      // pero el contador ya no cierra
+        assertThat(audit.balancesConsistent()).isFalse();      // but the counter no longer balances
         assertThat(audit.tamperDetected()).isTrue();
-        assertThat(audit.verdict()).contains("MANIPULACION DETECTADA");
-        System.out.println("[BALANCE-CHECK][ROJO][sin-encadenar][verdict] " + audit.verdict());
+        assertThat(audit.verdict()).contains("TAMPER DETECTED");
+        System.out.println("[BALANCE-CHECK][RED][not-yet-chained][verdict] " + audit.verdict());
     }
 
     private static AccountBalanceMismatch mismatchOf(AccountBalanceVerifier.BalanceVerifyResult r, String address) {
         return r.mismatches().stream()
                 .filter(m -> m.address().equals(address))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("no hay descuadre reportado para " + address));
+                .orElseThrow(() -> new AssertionError("no mismatch reported for " + address));
     }
 }

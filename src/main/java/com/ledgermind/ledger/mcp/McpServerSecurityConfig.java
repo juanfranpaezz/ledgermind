@@ -20,7 +20,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * Seguridad del MCP server: lo convierte en un OAuth2.1 Resource Server (Spring Security estandar).
+ * MCP server security: it turns it into an OAuth 2.1 Resource Server (standard Spring Security).
  *
  * <p>Security chains in every profile, in order: {@code /api/**} (X-API-Key, order 0, {@code ApiSecurityConfig});
  * {@code /mcp} (JWT Bearer, order 1, this class; per-tool scope via {@code @PreAuthorize}); and the default chain
@@ -31,20 +31,20 @@ import org.springframework.security.web.SecurityFilterChain;
  * {@code /oauth2/jwks}; outside demo it does not exist, those paths reach the default chain and no handler serves them
  * ({@code /oauth2/jwks} answers 404). OAuth applies only to {@code /mcp}.
  *
- * <p>El JWT se valida con firma + expiracion + AUDIENCIA: un token firmado por el mismo IdP pero emitido
- * para OTRO recurso (sin {@code aud=ledgermind-mcp}) se rechaza. Eso cierra el confused-deputy / token-reuse
- * clasico de OAuth/MCP (espiritu de RFC 8707, resource indicators). El decoder es LAZY (jwk-set-uri): no
- * hace fetch al arranque, evitando el problema con el Authorization Server co-ubicado del perfil demo.
+ * <p>The JWT is validated with signature + expiry + AUDIENCE: a token signed by the same IdP but issued
+ * for ANOTHER resource (without {@code aud=ledgermind-mcp}) is rejected. That closes the classic
+ * confused-deputy / token-reuse problem of OAuth/MCP (in the spirit of RFC 8707, resource indicators). The decoder is LAZY (jwk-set-uri): it does not
+ * fetch at startup, avoiding the problem with the demo profile's co-located Authorization Server.
  *
- * <p>NOTA: se descarto org.springaicommunity:mcp-server-security:0.0.6 porque su decoder hace fetch EAGER
- * del issuer al crear el filtro, incompatible con el AS co-ubicado. Se difiere el endpoint RFC 9728.
+ * <p>NOTE: org.springaicommunity:mcp-server-security:0.0.6 was rejected because its decoder fetches the issuer EAGERLY
+ * when the filter is created, which is incompatible with the co-located AS. The RFC 9728 endpoint is deferred.
  */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
 class McpServerSecurityConfig {
 
-    /** El endpoint MCP es un Resource Server OAuth2.1: sin JWT valido (firma+exp+aud) -> 401. */
+    /** The MCP endpoint is an OAuth 2.1 Resource Server: without a valid JWT (signature+exp+aud) -> 401. */
     @Bean
     @Order(1)
     SecurityFilterChain mcpSecurityFilterChain(HttpSecurity http) throws Exception {
@@ -57,8 +57,8 @@ class McpServerSecurityConfig {
     }
 
     /**
-     * Decoder JWT del resource server: lazy (jwk-set-uri) + validacion de timestamp (default) + AUDIENCIA.
-     * Lo toma automaticamente {@code oauth2ResourceServer().jwt()} al ser un bean {@link JwtDecoder}.
+     * The resource server's JWT decoder: lazy (jwk-set-uri) + timestamp validation (default) + AUDIENCE.
+     * {@code oauth2ResourceServer().jwt()} picks it up automatically because it is a {@link JwtDecoder} bean.
      */
     @Bean
     JwtDecoder jwtDecoder(

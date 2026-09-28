@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-/** API REST del ledger. Controller fino: traduce HTTP <-> {@link LedgerService} y nada mas. */
+/** The ledger's REST API. A thin controller: it translates HTTP <-> {@link LedgerService} and nothing more. */
 @RestController
 @RequestMapping("/api")
 public class LedgerController {
@@ -63,16 +63,16 @@ public class LedgerController {
         return PostingView.from(p);
     }
 
-    /** Verifica la integridad de la hash-chain del journal (tamper-evidence). Solo lectura. */
+    /** Verifies the integrity of the journal's hash-chain (tamper-evidence). Read-only. */
     @GetMapping("/journal/verify")
     public JournalChainer.VerifyResult verifyJournal() {
         return journal.verify();
     }
 
     /**
-     * Ultimo checkpoint firmado (Signed Tree Head local). Devuelve la clave publica, la firma ML-DSA y el
-     * mensaje EXACTO firmado, para que un tercero pueda verificar la firma por su cuenta — contra una clave
-     * que en prod debe anclarse fuera de la DB. 204 si aun no hay checkpoints.
+     * Latest signed checkpoint (local Signed Tree Head). It returns the public key, the ML-DSA signature and the
+     * EXACT signed message, so that a third party can verify the signature on its own — against a key
+     * that in prod must be anchored outside the DB. 204 if there are no checkpoints yet.
      */
     @GetMapping("/journal/checkpoint")
     public ResponseEntity<CheckpointView> latestCheckpoint() {
@@ -82,9 +82,9 @@ public class LedgerController {
     }
 
     /**
-     * Verifica el ultimo checkpoint en planos separados: firma valida, cadena integra (SHA-256 recomputado),
-     * eslabon firmado aun presente, y si es ademas la cabeza viva (informativo). El tamper de CONTENIDO lo
-     * delata {@code chainIntact}, no la firma.
+     * Verifies the latest checkpoint on separate planes: valid signature, intact chain (recomputed SHA-256),
+     * signed link still present, and whether it is also the live head (informational). CONTENT tamper is
+     * exposed by {@code chainIntact}, not by the signature.
      */
     @GetMapping("/journal/checkpoint/verify")
     public JournalCheckpointService.CheckpointVerification verifyCheckpoint() {
@@ -92,8 +92,8 @@ public class LedgerController {
     }
 
     /**
-     * Auditoria consolidada (mismo dato que el tool MCP {@code verify_journal_integrity}): hash-chain +
-     * firma post-cuantica en un solo informe con veredicto legible. Solo lectura.
+     * Consolidated audit (same data as the MCP tool {@code verify_journal_integrity}): hash-chain +
+     * post-quantum signature in a single report with a readable verdict. Read-only.
      */
     @GetMapping("/journal/audit")
     public JournalCheckpointService.JournalIntegrityReport auditJournal() {
@@ -101,23 +101,23 @@ public class LedgerController {
     }
 
     /**
-     * Reconcilia el ledger contra un feed de liquidacion del PSP (el body es la lista de registros del feed).
-     * El matching es determinista en Java; devuelve los descuadres clasificados. Solo lectura.
+     * Reconciles the ledger against a PSP settlement feed (the body is the list of feed records).
+     * The matching is deterministic in Java; it returns the classified discrepancies. Read-only.
      */
     @PostMapping("/reconciliation")
     public ReconciliationReport reconcile(@RequestBody List<SettlementRecord> feed) {
-        // Validacion en el BORDE: un feed real de un PSP trae filas sucias. Sin esto, un body 'null', un
-        // elemento [null] o un externalRef nulo reventaban el matcher (groupingBy con clave null) con un NPE
-        // crudo -> 500 en un endpoint de la API. Lo clasificamos como lo que es: un request invalido (400).
+        // Validation at the EDGE: a real PSP feed brings dirty rows. Without this, a 'null' body, a
+        // [null] element or a null externalRef blew up the matcher (groupingBy with a null key) with a raw
+        // NPE -> a 500 on an API endpoint. We classify it as what it is: an invalid request (400).
         if (feed == null || feed.stream().anyMatch(
                 r -> r == null || r.externalRef() == null || r.externalRef().isBlank())) {
             throw new IllegalArgumentException(
-                    "El feed de conciliacion no puede ser nulo y cada registro requiere un externalRef no vacio.");
+                    "The reconciliation feed cannot be null and every record requires a non-empty externalRef.");
         }
         return reconciliation.reconcile(feed);
     }
 
-    // --- DTOs (records): nunca exponemos las entidades JPA directamente ---
+    // --- DTOs (records): we never expose the JPA entities directly ---
 
     public record CreateAccountRequest(
             @NotBlank @Size(max = 128) String address,
@@ -128,7 +128,7 @@ public class LedgerController {
     public record TransferRequest(
             @NotBlank @Size(max = 128) String debitAddress,
             @NotBlank @Size(max = 128) String creditAddress,
-            // Cota superior: evita overflow de los contadores BIGINT por una cuenta allow_negative.
+            // Upper bound: prevents overflow of the BIGINT counters through an allow_negative account.
             @Positive @Max(1_000_000_000_000L) long amount,
             @NotBlank @Size(max = 64) String idempotencyKey) {
     }

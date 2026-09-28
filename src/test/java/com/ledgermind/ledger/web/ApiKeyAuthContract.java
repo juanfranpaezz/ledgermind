@@ -53,7 +53,7 @@ abstract class ApiKeyAuthContract {
     @Test
     void anEmptyKeyHeaderIs401AuthInvalidNotAnonymous() throws Exception {
         // An empty X-API-Key value is a presented credential that matches nothing (ADR 0004 diagram), not an
-        // absent header (round-3 docs-truth gate R2).
+        // absent header.
         ApiTestHttp h = http();
         assert401(h.send("GET", "/api/journal/audit", "", null), "auth_invalid", "GET audit, empty key");
         assert401(h.send("GET", "/api/accounts/x", "", null), "auth_invalid", "GET account, empty key");

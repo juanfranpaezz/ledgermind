@@ -31,15 +31,15 @@ import org.springframework.security.oauth2.server.authorization.token.OAuth2Toke
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
- * Authorization Server EMBEBIDO, SOLO para el perfil 'demo': emite tokens (grant client_credentials)
- * para demostrar el OAuth2.1 end-to-end en 1 GB. En produccion NO se usa: el issuer es un IdP externo
- * y este perfil no se activa. La clave RSA es efimera (se genera al arranque) -> solo demo.
+ * EMBEDDED Authorization Server, ONLY for the 'demo' profile: it issues tokens (client_credentials grant)
+ * to demonstrate OAuth 2.1 end to end in 1 GB. In production it is NOT used: the issuer is an external IdP
+ * and this profile is not active. The RSA key is ephemeral (generated at startup) -> demo only.
  */
 @Configuration
 @Profile("demo")
 class DemoAuthorizationServerConfig {
 
-    /** Cadena de los endpoints del Authorization Server (/oauth2/token, /oauth2/jwks, etc.). Maxima prioridad. */
+    /** Chain for the Authorization Server endpoints (/oauth2/token, /oauth2/jwks, etc.). Highest precedence. */
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
     SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
@@ -51,7 +51,7 @@ class DemoAuthorizationServerConfig {
         return http.build();
     }
 
-    /** Un solo cliente machine-to-machine: client_credentials con scope ledger.read. */
+    /** A single machine-to-machine client: client_credentials with scope ledger.read. */
     @Bean
     RegisteredClientRepository registeredClientRepository() {
         RegisteredClient mcpClient = RegisteredClient.withId(UUID.randomUUID().toString())
@@ -64,7 +64,7 @@ class DemoAuthorizationServerConfig {
         return new InMemoryRegisteredClientRepository(mcpClient);
     }
 
-    /** Clave RSA efimera para firmar los JWT (el resource server la lee por /oauth2/jwks). */
+    /** Ephemeral RSA key to sign the JWTs (the resource server reads it from /oauth2/jwks). */
     @Bean
     JWKSource<SecurityContext> jwkSource() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
@@ -82,7 +82,7 @@ class DemoAuthorizationServerConfig {
         return AuthorizationServerSettings.builder().build();
     }
 
-    /** Pone {@code aud=ledgermind-mcp} en cada access token, para que el resource server valide audiencia. */
+    /** Puts {@code aud=ledgermind-mcp} in every access token, so the resource server validates the audience. */
     @Bean
     OAuth2TokenCustomizer<JwtEncodingContext> jwtTokenCustomizer() {
         return context -> {

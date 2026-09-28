@@ -10,8 +10,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 public class LedgermindApplication {
 
 	public static void main(String[] args) {
-		// Un ledger de pagos vive en UTC. Lo fijamos ANTES de cualquier conexion a la DB
-		// para que el driver de Postgres no envie el timezone del host (es_AR) y lo rechace.
+		// A payments ledger lives in UTC. We pin it BEFORE any DB connection
+		// so that the Postgres driver does not send the host timezone (e.g. es_AR) and reject it.
 		TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
 		SpringApplication.run(LedgermindApplication.class, args);
 	}

@@ -23,8 +23,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * OAuth2.1 del MCP con validacion de AUDIENCIA: el SAS demo emite tokens con {@code aud=ledgermind-mcp}
- * (precondicion para que el resource server, que ahora valida aud, los acepte), y sin token /mcp da 401.
+ * OAuth 2.1 of the MCP with AUDIENCE validation: the demo SAS issues tokens with {@code aud=ledgermind-mcp}
+ * (a precondition for the resource server, which now validates aud, to accept them), and without a token /mcp gives 401.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("demo")
@@ -61,7 +61,7 @@ class McpOAuthAudienceTest {
         String accessToken = (String) tok.getBody().get("access_token");
         assertThat(accessToken).isNotBlank();
 
-        // Decodifico el payload del JWT (sin verificar firma) y confirmo el claim aud.
+        // I decode the JWT payload (without verifying the signature) and confirm the aud claim.
         String payload = new String(Base64.getUrlDecoder()
                 .decode(accessToken.split("\\.")[1]), StandardCharsets.UTF_8);
         assertThat(payload).contains("ledgermind-mcp");

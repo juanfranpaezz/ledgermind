@@ -12,7 +12,7 @@
 	<artifactId>ledgermind</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>ledgermind</name>
-	<description>Core de pagos con ledger de doble entrada append-only, idempotencia por clave unica (exactly-once), control de concurrencia con optimistic locking y un servidor MCP de auditoria read-only. Java 21 / Spring Boot.</description>
+	<description>Payments core with an append-only double-entry ledger, idempotency by unique key (exactly-once), concurrency control with optimistic locking and a read-only audit MCP server. Java 21 / Spring Boot.</description>
 	<properties>
 		<java.version>21</java.version>
 		<spring-modulith.version>1.4.11</spring-modulith.version>
@@ -39,24 +39,24 @@
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
 		</dependency>
-		<!-- Seguridad OAuth2.1 del MCP server con resource server estandar de Spring (decoder lazy).
-		     Se evaluo org.springaicommunity:mcp-server-security:0.0.6 pero hace fetch EAGER del issuer
-		     al arranque (incompatible con un Authorization Server co-ubicado); ver McpServerSecurityConfig. -->
+		<!-- OAuth 2.1 security for the MCP server with Spring's standard resource server (lazy decoder).
+		     org.springaicommunity:mcp-server-security:0.0.6 was evaluated, but it fetches the issuer EAGERLY
+		     at startup (incompatible with a co-located Authorization Server); see McpServerSecurityConfig. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
-		<!-- Validador de JWT: en el POM de mcp-security viene 'provided', hay que declararlo explicito. -->
+		<!-- JWT validator: the mcp-security POM declares it 'provided', so it has to be declared explicitly. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
 		</dependency>
-		<!-- Emisor de tokens para el demo (Spring Authorization Server embebido). En prod se usa un IdP externo. -->
+		<!-- Token issuer for the demo (embedded Spring Authorization Server). In prod an external IdP is used. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-oauth2-authorization-server</artifactId>
 		</dependency>
-		<!-- BouncyCastle: firma post-cuantica ML-DSA (FIPS 204) del journal. Nombres NIST (ML-DSA), no "Dilithium". -->
+		<!-- BouncyCastle: post-quantum ML-DSA (FIPS 204) signature of the journal. NIST names (ML-DSA), not "Dilithium". -->
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcprov-jdk18on</artifactId>
@@ -105,7 +105,7 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
-		<!-- @WithMockUser / SecurityContext en tests: probar que el scope per-tool se ENFORZA al invocar. -->
+		<!-- @WithMockUser / SecurityContext in tests: prove that the per-tool scope is ENFORCED on invocation. -->
 		<dependency>
 			<groupId>org.springframework.security</groupId>
 			<artifactId>spring-security-test</artifactId>
@@ -161,8 +161,8 @@
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
-					<!-- Corremos los tests en UTC: evita que el timezone del host (es_AR) se filtre
-					     a la conexion Postgres, y un ledger de pagos vive en UTC de punta a punta. -->
+					<!-- Tests run in UTC: keeps the host timezone (e.g. es_AR) from leaking
+					     into the Postgres connection; a payments ledger lives in UTC end to end. -->
 					<argLine>-Duser.timezone=UTC</argLine>
 				</configuration>
 			</plugin>

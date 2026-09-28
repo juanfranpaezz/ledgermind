@@ -1,5 +1,5 @@
-# Render Blueprint — deploy de LedgerMind (web service desde el Dockerfile + Postgres gestionado).
-# Uso: en https://dashboard.render.com -> New -> Blueprint -> conectar este repo -> Apply.
+# Render Blueprint — LedgerMind deploy (web service from the Dockerfile + managed Postgres).
+# Usage: at https://dashboard.render.com -> New -> Blueprint -> connect this repo -> Apply.
 services:
   - type: web
     name: ledgermind
@@ -8,24 +8,24 @@ services:
     plan: free
     healthCheckPath: /actuator/health
     envVars:
-      # REQUISITO antes de desplegar: LEDGERMIND_API_KEYS_FILE. El arranque es fail-closed sin esa variable, asi que
-      # sin ella el health check nunca pasa. Crear un Secret File en el dashboard (vacio = solo los cinco /api/demo/*
-      # anonimos; en servicios Docker se monta en /etc/secrets/<nombre>) y agregar aca
+      # REQUIRED before deploying: LEDGERMIND_API_KEYS_FILE. Startup is fail-closed without that variable, so
+      # without it the health check never passes. Create a Secret File in the dashboard (empty = only the five anonymous
+      # /api/demo/* endpoints; for Docker services it is mounted at /etc/secrets/<name>) and add here
       #   - key: LEDGERMIND_API_KEYS_FILE
-      #     value: /etc/secrets/<nombre>
+      #     value: /etc/secrets/<name>
       # The deployed instance IS the browsable demo (auditor scenario + embedded Authorization Server).
       # Without this the active profile would be 'default': an anonymous /api/demo/* call would get 401
       # (a call with a valid API key, 404) and /mcp would be unreachable -> the link a reviewer opens
       # first would not work.
       - key: SPRING_PROFILES_ACTIVE
         value: demo
-      # Render rutea el trafico externo al puerto de PORT. La app escucha en 8080 (server.port default),
-      # asi que le decimos a Render que ese es el puerto -> ruteo determinista (sin depender del autoscan).
-      # Ademas mantiene valido el jwk-set-uri co-ubicado (http://localhost:8080/oauth2/jwks).
+      # Render routes external traffic to the PORT port. The app listens on 8080 (server.port default),
+      # so we tell Render that this is the port -> deterministic routing (no reliance on the autoscan).
+      # It also keeps the co-located jwk-set-uri valid (http://localhost:8080/oauth2/jwks).
       - key: PORT
         value: "8080"
-      # Free tier = 512 MB RAM. Cap del heap al 75% del contenedor para no OOM-ear, preservando UTC
-      # (este env pisa el JAVA_TOOL_OPTIONS del Dockerfile, por eso repetimos -Duser.timezone=UTC).
+      # Free tier = 512 MB RAM. Heap capped at 75% of the container to avoid OOM, keeping UTC
+      # (this env overrides the Dockerfile's JAVA_TOOL_OPTIONS, which is why -Duser.timezone=UTC is repeated).
       - key: JAVA_TOOL_OPTIONS
         value: "-Duser.timezone=UTC -XX:MaxRAMPercentage=75.0"
       - key: SPRING_DATASOURCE_USERNAME
@@ -36,8 +36,8 @@ services:
         fromDatabase:
           name: ledgermind-db
           property: password
-      # La URL la completás 1 vez en el dashboard con el "Internal Database URL" de la DB,
-      # en formato jdbc:  jdbc:postgresql://HOST:PORT/DBNAME   (Render no la da en formato jdbc).
+      # You fill in the URL once in the dashboard with the DB's "Internal Database URL",
+      # in jdbc format:  jdbc:postgresql://HOST:PORT/DBNAME   (Render does not provide it in jdbc format).
       - key: SPRING_DATASOURCE_URL
         sync: false
 

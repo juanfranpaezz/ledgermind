@@ -11,9 +11,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Sonda de latencia de la transferencia (solo API que existe antes y despues del chequeo de congelamiento), para
- * medir el mismo camino con y sin la lectura de overdraft_flag. No afirma nada: imprime p50/p95. La asercion de
- * costo del chequeo vive en OverdraftSweepTest.
+ * Transfer latency probe (only an API that exists before and after the freeze check), to
+ * measure the same path with and without the overdraft_flag read. It asserts nothing: it prints p50/p95. The assertion on
+ * the check's cost lives in OverdraftSweepTest.
  */
 @SpringBootTest(properties = {
         "ledgermind.journal.chain-delay-ms=3600000",
