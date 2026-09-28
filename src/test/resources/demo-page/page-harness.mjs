@@ -6,6 +6,9 @@
 //   mode = live      -> fetch goes to <baseUrl> (a running app), no credentials sent
 //   mode = planted401 -> every call answers 401 {"detail":"auth_missing"} (a denied call must render as a failure)
 //   mode = empty200  -> every call answers 200 {} (missing fields must never render a check mark)
+//   mode = networkError -> every call rejects like a dropped connection (a failure must be rendered, never a
+//                          progress text left on screen)
+// A listener that throws does not stop the page (as in a browser): the error is recorded in "uncaught".
 import { readFileSync } from 'node:fs';
 
 const [, , pagePath, mode, baseUrl] = process.argv;
@@ -16,6 +19,7 @@ if (inline.length !== 1) {
   process.exit(2);
 }
 
+const uncaught = [];
 class El {
   constructor(id) { this.id = id; this.value = ''; this.listeners = {}; this.dataset = {}; this.disabled = false; }
   set textContent(v) { this.value = String(v); }
@@ -23,7 +27,11 @@ class El {
   set innerHTML(v) { this.value = String(v); }
   get innerHTML() { return this.value; }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
-  async click() { for (const fn of this.listeners.click ?? []) { await fn(); } }
+  async click() {
+    for (const fn of this.listeners.click ?? []) {
+      try { await fn(); } catch (e) { uncaught.push(`${this.id}: ${e}`); }
+    }
+  }
 }
 const els = new Map();
 const byId = id => { if (!els.has(id)) els.set(id, new El(id)); return els.get(id); };
@@ -50,6 +58,10 @@ const fetchImpl = mode === 'live'
     }
   : mode === 'planted401' ? planted(401, '{"detail":"auth_missing"}')
   : mode === 'empty200' ? planted(200, '{}')
+  : mode === 'networkError' ? async (path, init) => {
+      calls.push({ method: init?.method ?? 'GET', path, status: null });
+      throw new TypeError('network down');
+    }
   : null;
 if (!fetchImpl) { console.error('unknown mode ' + mode); process.exit(2); }
 
@@ -61,4 +73,4 @@ for (const b of demoButtons) {
   await b.click();
   outputs[b.dataset.demo] = byId('out-' + b.dataset.demo).value;
 }
-console.log(JSON.stringify({ mode, outputs, calls }));
+console.log(JSON.stringify({ mode, outputs, calls, uncaught }));

@@ -49,7 +49,8 @@ que la contención se ejercitó. Conecta la pieza estrella (concurrencia) con la
   retención/remote-write, reglas de alerta, y el `/actuator/prometheus` en un **management port aparte** o detrás de auth.
 - Las imágenes usan `:latest` por simplicidad del demo; en prod se pinnean versiones.
 - `/actuator/prometheus` is scraped by Prometheus over the compose **internal network**, but the app serves it on its
-  own HTTP port (8080) with **no authentication** (the default security chain leaves the actuator open): anyone who can
+  own HTTP port (8080) with **no authentication** (under the demo profile, which this stack and the Render deploy run, the
+  default security chain leaves the actuator open; outside demo it needs an `X-API-Key`): anyone who can
   reach that port, including on a public deploy of the app, can read the metrics.
 
 ## Defensa de entrevista (3 niveles)

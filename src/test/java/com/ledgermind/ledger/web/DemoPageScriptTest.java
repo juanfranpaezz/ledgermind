@@ -98,6 +98,18 @@ class DemoPageScriptTest {
         }
     }
 
+    @Test
+    void a_network_error_renders_a_failure_never_a_stuck_progress_text() throws Exception {
+        // round-3 docs-truth gate R4: reset() had no catch, so a rejected fetch left "reiniciando…" on screen.
+        JsonNode run = runPageScript("networkError");
+        JsonNode out = run.path("outputs");
+        assertThat(out.path("resetMsg").asText()).as("resetMsg")
+                .contains("✗").contains("falló").doesNotContain("reiniciando");
+        for (String demo : DEMOS) {
+            assertThat(out.path(demo).asText()).as(demo).startsWith("error: ").doesNotContain("✓");
+        }
+    }
+
     private JsonNode runPageScript(String mode) throws Exception {
         assumeTrue(nodeAvailable(), "node is not on the PATH: the page-script run is skipped");
         Process p = new ProcessBuilder("node", HARNESS.toString(), PAGE.toString(), mode, "http://localhost:" + port)
@@ -106,7 +118,11 @@ class DemoPageScriptTest {
         String stdout = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertThat(p.waitFor(60, TimeUnit.SECONDS)).as("harness finished").isTrue();
         assertThat(p.exitValue()).as("harness exit code, stdout: " + stdout).isZero();
-        return new ObjectMapper().readTree(stdout);
+        JsonNode run = new ObjectMapper().readTree(stdout);
+        // Every mode: no click handler may leave an error uncaught (a browser would just stop that handler).
+        assertThat(run.has("uncaught")).as("harness reports uncaught listener errors").isTrue();
+        assertThat(run.path("uncaught")).as("uncaught listener errors, outputs: " + run.path("outputs")).isEmpty();
+        return run;
     }
 
     private static boolean nodeAvailable() {

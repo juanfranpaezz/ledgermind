@@ -81,7 +81,7 @@ sequenceDiagram
     T->>S: routed path /api/journal/audit
     alt X-API-Key header present and matches a sha256 line
         S->>R: principal = key_id (window key:<key_id>)
-    else X-API-Key header present, matches nothing
+    else X-API-Key header present (an empty value included), matches nothing
         S-->>C: 401 auth_invalid (even on a demo pair)
     else no header, demo profile, one of the five anonymous pairs
         S->>R: anonymous (shared anonymous window)

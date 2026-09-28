@@ -23,7 +23,8 @@ import jakarta.servlet.http.HttpServletResponse;
  * <ul>
  *   <li>No header: the request continues unauthenticated; the chain's allow-list or its entry point
  *       ({@code 401 auth_missing}) decides.</li>
- *   <li>A header that matches no key: {@code 401 auth_invalid}, on every path, allow-listed or not.</li>
+ *   <li>A header that matches no key, an empty value included: {@code 401 auth_invalid}, on every path,
+ *       allow-listed or not (a presented but empty credential fails closed; it is never downgraded to anonymous).</li>
  *   <li>A matching key: the principal is its key_id (never the key).</li>
  * </ul>
  * The presented value is never logged, echoed or put into an exception.
@@ -44,11 +45,11 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String presented = request.getHeader(HEADER);
-        if (presented == null || presented.isEmpty()) {
+        if (presented == null) {
             chain.doFilter(request, response);
             return;
         }
-        Optional<String> keyId = keys.authenticate(presented);
+        Optional<String> keyId = presented.isEmpty() ? Optional.empty() : keys.authenticate(presented);
         if (keyId.isEmpty()) {
             writeProblem(response, "auth_invalid", "API key not accepted",
                     "The X-API-Key header does not match any configured key.");

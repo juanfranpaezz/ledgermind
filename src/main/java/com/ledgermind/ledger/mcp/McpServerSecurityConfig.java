@@ -22,10 +22,14 @@ import org.springframework.security.web.SecurityFilterChain;
 /**
  * Seguridad del MCP server: lo convierte en un OAuth2.1 Resource Server (Spring Security estandar).
  *
- * <p>Three security chains, in order: {@code /api/**} (X-API-Key, order 0, {@code ApiSecurityConfig}); {@code /mcp}
- * (JWT Bearer, order 1, this class; per-tool scope via {@code @PreAuthorize}); and the default chain (order 2, this
- * class), which leaves only the static page and the actuator open (outside the {@code demo} profile the /api chain
- * also takes the prometheus endpoint and asks for an X-API-Key). OAuth applies only to {@code /mcp}.
+ * <p>Security chains in every profile, in order: {@code /api/**} (X-API-Key, order 0, {@code ApiSecurityConfig});
+ * {@code /mcp} (JWT Bearer, order 1, this class; per-tool scope via {@code @PreAuthorize}); and the default chain
+ * (order 2, this class), which leaves only the static page and the actuator open (outside the {@code demo} profile the
+ * /api chain also takes the prometheus endpoint and asks for an X-API-Key). Under the {@code demo} profile a fourth
+ * chain runs before all of them: the co-located authorization server's ({@code DemoAuthorizationServerConfig},
+ * {@code @Order(HIGHEST_PRECEDENCE)}), matching only its endpoints such as {@code /oauth2/token} and
+ * {@code /oauth2/jwks}; outside demo it does not exist, those paths reach the default chain and no handler serves them
+ * ({@code /oauth2/jwks} answers 404). OAuth applies only to {@code /mcp}.
  *
  * <p>El JWT se valida con firma + expiracion + AUDIENCIA: un token firmado por el mismo IdP pero emitido
  * para OTRO recurso (sin {@code aud=ledgermind-mcp}) se rechaza. Eso cierra el confused-deputy / token-reuse

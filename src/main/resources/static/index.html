@@ -101,7 +101,10 @@ const failed = (r, what) => pill(false, `${what} (HTTP ${r.status})`) +
 
 async function reset() {
   $('#resetMsg').textContent = 'reiniciando…';
-  const r = await api('POST', '/api/demo/reset');
+  let r;
+  // A rejected fetch (network error) must end in a failure mark, never leave the progress text on screen.
+  try { r = await api('POST', '/api/demo/reset'); }
+  catch (e) { $('#resetMsg').textContent = `✗ el reinicio falló (sin respuesta del servidor: ${e.message})`; return; }
   $('#resetMsg').textContent = r.ok && typeof r.data.message === 'string'
     ? r.data.message : `✗ el reinicio falló (HTTP ${r.status})`;
   ['idem','tamper','audit'].forEach(k => $('#out-'+k).textContent = '—');

@@ -56,9 +56,10 @@ management:
     web:
       exposure:
         # prometheus = the endpoint Prometheus scrapes (Micrometer -> Prometheus -> Grafana) over the compose
-        # internal network (app:8080). It is served on the app's own port with NO auth, so wherever that port is
-        # published (locally, or a public deploy) anyone can read the metrics. In prod it would go on a separate
-        # management port or behind auth; this is a demo and the metrics are not treated as sensitive.
+        # internal network (app:8080), on the app's own port. Only under the demo profile is it anonymous (the bundled
+        # observability stack and the Render deploy run demo), so wherever a demo app's port is published anyone can
+        # read the metrics; they are not treated as sensitive. Outside demo the /api security chain also takes this
+        # endpoint and asks for an X-API-Key (401 without one: ApiSecurityConfig, pinned by ActuatorExposureTest).
         include: health,prometheus
   endpoint:
     health:

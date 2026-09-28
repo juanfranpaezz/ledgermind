@@ -22,7 +22,7 @@ abstract class ApiKeyAuthContract {
     @LocalServerPort
     private int port;
 
-    private ApiTestHttp http() {
+    ApiTestHttp http() {
         return new ApiTestHttp(port);
     }
 
@@ -31,7 +31,7 @@ abstract class ApiKeyAuthContract {
                 + "\",\"amount\":100,\"idempotencyKey\":\"auth-" + u + "\"}";
     }
 
-    private void assert401(HttpResponse<String> r, String code, String what) throws Exception {
+    void assert401(HttpResponse<String> r, String code, String what) throws Exception {
         assertThat(r.statusCode()).as(what + " status").isEqualTo(401);
         assertThat(ApiTestHttp.json(r).path("code").asText()).as(what + " code").isEqualTo(code);
         assertThat(r.headers().firstValue("WWW-Authenticate")).as(what + " challenge").hasValue(CHALLENGE);
@@ -48,6 +48,16 @@ abstract class ApiKeyAuthContract {
             int status = h.send("GET", variant, null, null).statusCode();
             assertThat(status).as("anonymous " + variant).isIn(400, 401, 404);
         }
+    }
+
+    @Test
+    void anEmptyKeyHeaderIs401AuthInvalidNotAnonymous() throws Exception {
+        // An empty X-API-Key value is a presented credential that matches nothing (ADR 0004 diagram), not an
+        // absent header (round-3 docs-truth gate R2).
+        ApiTestHttp h = http();
+        assert401(h.send("GET", "/api/journal/audit", "", null), "auth_invalid", "GET audit, empty key");
+        assert401(h.send("GET", "/api/accounts/x", "", null), "auth_invalid", "GET account, empty key");
+        assert401(h.send("POST", "/api/transfers", "", transferBody("empty")), "auth_invalid", "POST, empty key");
     }
 
     @Test
