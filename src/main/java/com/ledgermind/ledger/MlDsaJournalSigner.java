@@ -102,7 +102,7 @@ public class MlDsaJournalSigner implements JournalSigner {
             // Corrupt Base64 / invalid X.509 key / missing provider: we COULD NOT verify. We do not
             // disguise it as tamper -> we fail loudly so as not to issue a false security verdict.
             throw new IllegalStateException(
-                    "Could not verify the ML-DSA signature (structural cause, not evidence of tamper)", structural);
+                    "Could not verify the ML-DSA signature (structural cause, not tamper evidence)", structural);
         }
     }
 }

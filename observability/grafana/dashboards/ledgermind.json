@@ -50,7 +50,7 @@
     },
     {
       "id": 5,
-      "title": "JVM heap usado (bytes)",
+      "title": "JVM heap used (bytes)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },

@@ -101,8 +101,8 @@ public class TransferService {
      * with 409 even though there were funds. The cap (20 ms) keeps latency and the tests bounded.
      */
     private static void backoffBeforeRetry(int attempt) {
-        long base = Math.min(20L, 1L << (attempt - 1));                        // 1,2,4,8,16 -> tope 20 ms
-        long sleepMs = base + ThreadLocalRandom.current().nextLong(base + 1);  // + jitter en [0, base]
+        long base = Math.min(20L, 1L << (attempt - 1));                        // 1,2,4,8,16 -> capped at 20 ms
+        long sleepMs = base + ThreadLocalRandom.current().nextLong(base + 1);  // + jitter in [0, base]
         try {
             Thread.sleep(sleepMs);
         } catch (InterruptedException ie) {

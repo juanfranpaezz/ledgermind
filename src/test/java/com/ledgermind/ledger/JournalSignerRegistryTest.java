@@ -24,7 +24,7 @@ class JournalSignerRegistryTest {
     }
 
     @Test
-    void registra_ambos_esquemas() {
+    void registers_both_schemes() {
         assertThat(registry.supportedAlgorithms()).containsExactly("Ed25519", "ML-DSA-65");
         assertThat(registry.supports("ML-DSA-65")).isTrue();
         assertThat(registry.supports("Ed25519")).isTrue();
@@ -60,7 +60,7 @@ class JournalSignerRegistryTest {
     }
 
     @Test
-    void detecta_tamper_en_ML_DSA() {
+    void detects_tamper_on_ML_DSA() {
         byte[] data = msg("head:abc123");
         String sig = mldsa.sign(data);
         byte[] tampered = msg("head:abc124");
@@ -69,7 +69,7 @@ class JournalSignerRegistryTest {
     }
 
     @Test
-    void detecta_tamper_en_Ed25519() {
+    void detects_tamper_on_Ed25519() {
         byte[] data = msg("head:abc123");
         String sig = ed.sign(data);
         byte[] tampered = msg("head:abc124");

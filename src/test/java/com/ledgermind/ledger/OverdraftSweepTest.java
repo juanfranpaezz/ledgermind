@@ -186,7 +186,7 @@ class OverdraftSweepTest {
         assertThat(row.get("clear_reason")).isEqualTo("posting 3 reviewed; counters reconciled by hand");
         assertThat(sweeper.activeFlags()).isEmpty();
 
-        ledger.transfer("wallet:a", "wallet:b", 1_000, "after-unfreeze");   // vuelve a operar
+        ledger.transfer("wallet:a", "wallet:b", 1_000, "after-unfreeze");   // operates again
     }
 
     /**
@@ -226,7 +226,7 @@ class OverdraftSweepTest {
         SweepResult quiet = sweeper.sweep();
         log("a3-quiet", quiet);
         assertThat(quiet.touchedAccounts()).isZero();
-        assertThat(sweeper.activeFlags()).isEmpty();                          // NO DETECTA (documentado)
+        assertThat(sweeper.activeFlags()).isEmpty();                          // NOT DETECTED (documented)
         ledger.transfer("wallet:a", "wallet:b", 1, "a3-moves");
         SweepResult moved = sweeper.sweep();
         log("a3-moved", moved);

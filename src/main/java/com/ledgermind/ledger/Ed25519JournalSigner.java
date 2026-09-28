@@ -96,7 +96,7 @@ public class Ed25519JournalSigner implements JournalSigner {
             return false;
         } catch (GeneralSecurityException | IllegalArgumentException structural) {
             throw new IllegalStateException(
-                    "Could not verify the Ed25519 signature (structural cause, not evidence of tamper)", structural);
+                    "Could not verify the Ed25519 signature (structural cause, not tamper evidence)", structural);
         }
     }
 }

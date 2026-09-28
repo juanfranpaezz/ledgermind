@@ -139,7 +139,7 @@ class UnchainedPostingCoverageTest {
     void effective_production_window_is_60s_and_never_below_3_chainer_cycles() throws Exception {
         Method m = JournalCheckpointService.class.getDeclaredMethod("effectiveUnchainedGraceMs", long.class, long.class);
         m.setAccessible(true);
-        assertThat((long) m.invoke(null, 60_000L, 5_000L)).isEqualTo(60_000L);          // defaults de application
+        assertThat((long) m.invoke(null, 60_000L, 5_000L)).isEqualTo(60_000L);          // application defaults
         assertThat((long) m.invoke(null, 60_000L, 3_600_000L)).isEqualTo(10_800_000L);  // slow chainer
     }
 
