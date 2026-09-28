@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -14,7 +15,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Per-caller rate limit (fixed window, 30 requests per 10 s) on {@code /api/demo/**} (the five demo endpoints,
+ * Per-caller rate limit (fixed window; by default 30 requests per 10 s, set by {@code ledgermind.rate-limit.max-per-window}
+ * and {@code ledgermind.rate-limit.window-ms}) on {@code /api/demo/**} (the five demo endpoints,
  * anonymous only under the {@code demo} profile) and {@code /api/journal/**} (keyed; verify/audit are O(n)).
  * Runs after Spring Security, so only requests that passed authentication are counted (a 401 is not). Each API key
  * (its key_id) has its own window; every anonymous demo caller shares ONE window. So one caller cannot put another
@@ -25,13 +27,22 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    private static final int MAX_PER_WINDOW = 30;
-    private static final long WINDOW_MS = 10_000;
+    private final int maxPerWindow;
+    private final long windowMs;
 
     /** The bucket every unauthenticated (anonymous demo) caller shares. Key buckets are prefixed, so no key_id collides. */
     static final String ANONYMOUS_BUCKET = "anonymous";
 
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
+
+    public RateLimitFilter(@Value("${ledgermind.rate-limit.max-per-window:30}") int maxPerWindow,
+                           @Value("${ledgermind.rate-limit.window-ms:10000}") long windowMs) {
+        if (maxPerWindow < 1 || windowMs < 1) {
+            throw new IllegalArgumentException("ledgermind.rate-limit.max-per-window and window-ms must be >= 1");
+        }
+        this.maxPerWindow = maxPerWindow;
+        this.windowMs = windowMs;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
@@ -75,11 +86,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
         long now = System.currentTimeMillis();
         Window window = windows.computeIfAbsent(bucket, b -> new Window(now));
         synchronized (window) {
-            if (now - window.start > WINDOW_MS) {
+            if (now - window.start > windowMs) {
                 window.start = now;
                 window.count = 0;
             }
-            return ++window.count <= MAX_PER_WINDOW;
+            return ++window.count <= maxPerWindow;
         }
     }
 

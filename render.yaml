@@ -13,9 +13,10 @@ services:
       # anonimos; en servicios Docker se monta en /etc/secrets/<nombre>) y agregar aca
       #   - key: LEDGERMIND_API_KEYS_FILE
       #     value: /etc/secrets/<nombre>
-      # La instancia desplegada ES la demo navegable (escenario de auditor + Authorization Server
-      # embebido). Sin esto el perfil activo seria 'default': los /api/demo/* darian 404 y /mcp seria
-      # inalcanzable -> el link que el reviewer abre primero no funcionaria.
+      # The deployed instance IS the browsable demo (auditor scenario + embedded Authorization Server).
+      # Without this the active profile would be 'default': an anonymous /api/demo/* call would get 401
+      # (a call with a valid API key, 404) and /mcp would be unreachable -> the link a reviewer opens
+      # first would not work.
       - key: SPRING_PROFILES_ACTIVE
         value: demo
       # Render rutea el trafico externo al puerto de PORT. La app escucha en 8080 (server.port default),

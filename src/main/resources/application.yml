@@ -55,9 +55,10 @@ management:
   endpoints:
     web:
       exposure:
-        # prometheus = el endpoint que scrapea Prometheus (Micrometer -> Prometheus -> Grafana). Lo consume
-        # Prometheus por la RED INTERNA del compose (app:8080), no se publica al internet. En prod iria en un
-        # management port aparte o detras de auth; aca es un demo y las metricas no son secretos sensibles.
+        # prometheus = the endpoint Prometheus scrapes (Micrometer -> Prometheus -> Grafana) over the compose
+        # internal network (app:8080). It is served on the app's own port with NO auth, so wherever that port is
+        # published (locally, or a public deploy) anyone can read the metrics. In prod it would go on a separate
+        # management port or behind auth; this is a demo and the metrics are not treated as sensitive.
         include: health,prometheus
   endpoint:
     health:

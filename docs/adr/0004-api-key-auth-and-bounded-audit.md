@@ -31,7 +31,8 @@ Only under the `demo` profile, five method+path pairs are anonymous, listed lite
 
 ### D3 — rate limit counted per caller
 `RateLimitFilter` (a servlet filter that runs after the security chain, so a `401` is never counted) keeps one fixed
-window of 30 requests per 10 s per caller: `key:<key_id>` for a keyed request, and one `anonymous` window shared by
+window per caller, by default 30 requests per 10 s (`ledgermind.rate-limit.max-per-window`,
+`ledgermind.rate-limit.window-ms`): `key:<key_id>` for a keyed request, and one `anonymous` window shared by
 all anonymous demo callers. It covers `/api/demo/*` and `/api/journal/*`, matched on the decoded, normalized path
 the container routes (`RateLimitEncodedPathTest`). One key using up its window does not limit another key, and the
 anonymous demo cannot limit keyed callers (`RateLimitPerCallerTest`). The number of windows is bounded by the keys
@@ -45,7 +46,10 @@ Proposal: a request-time audit recomputes at most the last `recent-window` links
 full sweep; a streamed background sweep recomputes the whole chain every `sweep-delay-ms` and records an anchor; an
 edit to an older posting is detected within one sweep interval plus the sweep's duration, or immediately with
 `?full=true`. Today `verify()` still recomputes every chained posting on every call, so the audit's cost grows with
-the journal and it is only protected by D1 and D3.
+the journal and on `/api` it is only protected by D1 and D3. The MCP audit (`verify_journal_integrity` on `/mcp`) is
+protected by neither: it needs an OAuth token, not an API key, and the rate limit does not match `/mcp`; under the
+`demo` profile the token comes from the demo client credential the README publishes, so anyone can run full audits
+there with no limit.
 Rejected alternatives recorded for when it is built: **sweep state in a DB row** — an attacker who can edit the
 journal out of band can edit that row too, so the anchor is kept in process memory and rebuilt by a sweep at boot;
 **synchronous full recompute on every request** — the current behaviour, whose cost is O(n) per call.
@@ -100,7 +104,10 @@ stateDiagram-v2
 ```
 
 ## Consequences
-- (+) No anonymous write or audit outside the five demo pairs, in any profile; keys are never in the repository.
+- (+) No anonymous write or audit on `/api` outside the five demo pairs, in any profile; keys are never in the
+  repository.
+- (−) The MCP audit is outside D1 and D3: under the `demo` profile anyone holding the README's public demo client
+  credential can call `verify_journal_integrity` (a full O(n) audit) with no rate limit.
 - (+) One noisy caller cannot put another key's audits in `429`.
 - (−) Every deploy must provide `LEDGERMIND_API_KEYS_FILE` (an empty file for an anonymous-only demo), or the app
   does not start.

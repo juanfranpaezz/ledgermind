@@ -33,7 +33,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * <p>Runs under the {@code demo} profile so the anonymous bucket exists, with its own keys file holding two keys
  * generated at run time (only their SHA-256 lines are written, to a temp file outside the repository).
  *
- * <p>Both outcomes, in one context (the windows are 10 s and shared by the whole context, so the order is fixed):
+ * <p>The window is set to one hour here ({@code ledgermind.rate-limit.window-ms=3600000}; production default 10 s) so a
+ * slow, loaded machine cannot reset it in the middle of the test (gate r2, 2026-09-26: with the hard-coded 10 s window
+ * the 31 calls spanned more than one window and the test failed under load). The limit stays at its default of 30,
+ * and the counts are asserted exactly, so an off-by-one in the limiter goes red.
+ *
+ * <p>Both outcomes, in one context (the windows are shared by the whole context, so the order is fixed):
  * fires: the anonymous caller and key A each get 429 once their own window is used up; does not fire: key A's audit
  * after the anonymous caller is used up, and key B's audit after key A is used up, both get 200.
  */
@@ -41,7 +46,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "ledgermind.journal.chain-delay-ms=3600000",
         "ledgermind.journal.checkpoint-delay-ms=3600000",
         "ledgermind.overdraft.sweep-delay-ms=3600000",
-        "ledgermind.overdraft.sweep-initial-delay-ms=3600000"
+        "ledgermind.overdraft.sweep-initial-delay-ms=3600000",
+        "ledgermind.rate-limit.window-ms=3600000",
+        "ledgermind.rate-limit.max-per-window=30"
 })
 @ActiveProfiles("demo")
 @Testcontainers
@@ -120,9 +127,11 @@ class RateLimitPerCallerTest {
         System.out.println("[RATE-PER-CALLER] anonymousServed=" + anonymousServed + " keyAAfterAnonymous="
                 + keyAAfterAnonymous + " keyAServed=" + keyAServed + " keyBAfterKeyA=" + keyBAfterKeyA
                 + " keyAAgain=" + keyAAgain);
-        assertThat(anonymousServed).as("anonymous demo audits served before the first 429").isBetween(1, 30);
+        // Exactly the limit: the anonymous window had no earlier calls, so 30 are served and the 31st gets 429.
+        assertThat(anonymousServed).as("anonymous demo audits served before the first 429").isEqualTo(30);
         assertThat(keyAAfterAnonymous).as("keyed audit after the anonymous window is used up").isEqualTo(200);
-        assertThat(keyAServed).as("key A audits served before its first 429").isBetween(1, 30);
+        // Key A already spent 2 of its 30 (the precondition call and keyAAfterAnonymous), so 28 more are served.
+        assertThat(keyAServed).as("key A audits served before its first 429").isEqualTo(28);
         assertThat(keyBAfterKeyA).as("key B audit after key A's window is used up").isEqualTo(200);
         assertThat(keyAAgain).as("key A is still limited").isEqualTo(429);
     }

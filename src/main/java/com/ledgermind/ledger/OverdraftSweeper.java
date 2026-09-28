@@ -192,10 +192,6 @@ public class OverdraftSweeper {
         return new SweepResult(previous, newWatermark, from, to, touched, flagged, micros, reset);
     }
 
-    /**
-     * Camino caliente de la transferencia: UNA lectura por el indice parcial overdraft_flag_one_active_per_account.
-     * Sin re-derivacion. Tira {@link AccountFrozenException} si el origen o el destino estan congelados.
-     */
     private static final BigInteger[] ZERO_SUMS = {BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO, BigInteger.ZERO};
 
     private static BigInteger exact(java.math.BigDecimal sum) {
@@ -214,6 +210,10 @@ public class OverdraftSweeper {
         return v.signum() > 0 ? Long.MAX_VALUE : Long.MIN_VALUE;
     }
 
+    /**
+     * Camino caliente de la transferencia: UNA lectura por el indice parcial overdraft_flag_one_active_per_account.
+     * Sin re-derivacion. Tira {@link AccountFrozenException} si el origen o el destino estan congelados.
+     */
     public void assertNotFrozen(long debitAccountId, long creditAccountId) {
         List<long[]> active = jdbc.query("SELECT account_id, id FROM overdraft_flag"
                         + " WHERE account_id IN (?, ?) AND cleared_at IS NULL LIMIT 1",

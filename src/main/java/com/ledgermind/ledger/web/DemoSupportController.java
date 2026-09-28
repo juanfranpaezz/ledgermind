@@ -84,7 +84,11 @@ class DemoSupportController {
                 + " (simulando un atacante con acceso a la base). La firma NO se toco.");
     }
 
-    /** Fixed idempotency key of the demo: every call after the first replays, so anonymous callers add at most one posting per reset. */
+    /**
+     * Fixed idempotency key of the demo: every call after the first replays, so anonymous callers add at most one
+     * posting per reset. The demo tamper edits the LATEST posting; once that is this posting, later idempotency calls
+     * get 409 (the stored amount no longer matches the request) and still add no posting, until the next reset.
+     */
     static final String DEMO_IDEMPOTENCY_KEY = "demo-dup";
 
     /**

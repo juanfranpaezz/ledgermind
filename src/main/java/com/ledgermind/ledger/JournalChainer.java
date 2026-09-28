@@ -110,10 +110,11 @@ public class JournalChainer {
     }
 
     /**
-     * Recorre la cadena y recomputa cada hash desde el contenido ACTUAL del asiento. Pagina por seq
-     * (keyset) y carga los asientos del lote en UNA query (sin N+1 ni full-load en memoria), para que
-     * verificar no sea O(n) en round-trips ni reviente el heap. A escala real (millones de asientos) el
-     * paso siguiente es Merkle + verificacion incremental desde el ultimo checkpoint.
+     * Walks the chain and recomputes every hash from the CURRENT content of each posting. It pages by seq (keyset,
+     * 200 links per page) and loads each page's postings in ONE query, so there is no N+1; but it is still O(n): about
+     * 2 x n/200 round-trips, and every loaded Posting and PostingHash stays in the persistence context until this
+     * read-only transaction ends, so memory also grows with n. At real scale (millions of postings) the next step is
+     * Merkle + incremental verification from the last checkpoint (ADR 0004, D4: proposed, not built).
      */
     @Transactional(readOnly = true)
     public VerifyResult verify() {
