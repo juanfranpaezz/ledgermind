@@ -37,4 +37,12 @@ class ActuatorExposureDemoTest {
         assertThat(anonymous.statusCode()).isEqualTo(200);
         assertThat(anonymous.body()).contains("jvm_");
     }
+
+    /** Control for {@link ActuatorExposureTest#oauth2_jwks_is_not_served_outside_the_demo_profile}: under demo it is served. */
+    @Test
+    void oauth2_jwks_is_served_under_the_demo_profile() throws Exception {
+        HttpResponse<String> jwks = new ApiTestHttp(port).send("GET", "/oauth2/jwks", null, null);
+        assertThat(jwks.statusCode()).isEqualTo(200);
+        assertThat(jwks.body()).contains("\"keys\"");
+    }
 }

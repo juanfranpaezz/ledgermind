@@ -148,7 +148,9 @@ public class JournalCheckpointService {
     public CheckpointVerification verifyLatest() {
         JournalCheckpoint cp = checkpoints.findTopByOrderByIdDesc().orElse(null);
         if (cp == null) {
-            return CheckpointVerification.none();
+            // No signature to verify, but the chain plane does not depend on one: report what the chain recomputes to
+            // (the same answer as GET /api/journal/verify), not a hard-coded false that reads as a broken chain.
+            return CheckpointVerification.none(chainer.verify().intact());
         }
         Signals s = signalsFor(cp);
         boolean chainIntact = chainer.verify().intact();
@@ -514,8 +516,9 @@ public class JournalCheckpointService {
                                          boolean signatureValid, boolean chainIntact,
                                          boolean signedHeadStillInChain, boolean isLatestHead,
                                          Instant signedAt) {
-        static CheckpointVerification none() {
-            return new CheckpointVerification(false, null, 0L, null, false, false, false, false, null);
+        /** No checkpoint yet: the signature planes are not applicable (false); chainIntact is still the recomputed chain. */
+        static CheckpointVerification none(boolean chainIntact) {
+            return new CheckpointVerification(false, null, 0L, null, false, chainIntact, false, false, null);
         }
     }
 

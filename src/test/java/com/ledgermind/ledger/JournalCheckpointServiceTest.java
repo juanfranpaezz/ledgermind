@@ -232,6 +232,32 @@ class JournalCheckpointServiceTest {
     }
 
     @Test
+    void with_no_checkpoint_chainIntact_on_a_fresh_db_matches_the_chain_verify() {
+        // S104 (d1): with no checkpoint yet, chainIntact is still the recomputed chain, the same answer as
+        // GET /api/journal/verify (chainer.verify()). A fresh database has an empty, intact chain.
+        assertThat(chainer.verify().intact()).as("chain verify on a fresh db").isTrue();
+        var v = checkpoints.verifyLatest();
+        assertThat(v.present()).isFalse();
+        assertThat(v.signatureValid()).isFalse();
+        assertThat(v.chainIntact()).as("chainIntact with no checkpoint on a fresh db").isTrue();
+    }
+
+    /** Control for the test above: with no checkpoint and a tampered chained posting, chainIntact is false. */
+    @Test
+    void with_no_checkpoint_a_broken_chain_still_reports_chainIntact_false() {
+        ledger.createAccount("external:funding", "ARS", true);
+        ledger.createAccount("wallet:a", "ARS", false);
+        Posting seed = ledger.transfer("external:funding", "wallet:a", 100_000, "seed");
+        chainer.chainPendingPostings();
+        jdbc.update("UPDATE posting SET amount = amount + 1 WHERE id = ?", seed.getId());
+
+        assertThat(chainer.verify().intact()).as("chain verify after the tamper").isFalse();
+        var v = checkpoints.verifyLatest();
+        assertThat(v.present()).isFalse();
+        assertThat(v.chainIntact()).as("chainIntact with no checkpoint after the tamper").isFalse();
+    }
+
+    @Test
     void creates_a_new_checkpoint_when_the_head_advances() {
         ledger.createAccount("external:funding", "ARS", true);
         ledger.createAccount("wallet:c", "ARS", false);
