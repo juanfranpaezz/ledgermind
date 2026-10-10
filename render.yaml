@@ -28,17 +28,17 @@ services:
       # (this env overrides the Dockerfile's JAVA_TOOL_OPTIONS, which is why -Duser.timezone=UTC is repeated).
       - key: JAVA_TOOL_OPTIONS
         value: "-Duser.timezone=UTC -XX:MaxRAMPercentage=75.0"
-      - key: SPRING_DATASOURCE_USERNAME
-        fromDatabase:
-          name: ledgermind-db
-          property: user
-      - key: SPRING_DATASOURCE_PASSWORD
-        fromDatabase:
-          name: ledgermind-db
-          property: password
-      # You fill in the URL once in the dashboard with the DB's "Internal Database URL",
-      # in jdbc format:  jdbc:postgresql://HOST:PORT/DBNAME   (Render does not provide it in jdbc format).
+      # DATABASE = Neon Postgres (cutover from the expiring Render free Postgres). The three values below are pasted by
+      # the owner in the Render dashboard (service -> Environment); none is stored in this repo. With sync: false
+      # Render IGNORES them on every Blueprint update, so a later sync can never re-link the app to a retired database.
+      #   SPRING_DATASOURCE_URL      jdbc:postgresql://<Neon DIRECT host, no -pooler>/<database>?sslmode=require
+      #   SPRING_DATASOURCE_USERNAME the Neon role name (separate variable, not inside the URL)
+      #   SPRING_DATASOURCE_PASSWORD the Neon role password (separate variable, not inside the URL)
       - key: SPRING_DATASOURCE_URL
+        sync: false
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
         sync: false
 
 databases:
