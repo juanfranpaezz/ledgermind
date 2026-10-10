@@ -15,7 +15,6 @@ import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -34,9 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
  * ITS scheme, supporting >1 algorithm in parallel and allowing rotation without blinding the old checkpoints.
  *
  * <p>Runs ASYNCHRONOUSLY, after the {@link JournalChainer}: the chainer links postings, this service
- * anchors the chain with a signature. Idempotent WITH A SINGLE WRITER (compares headHash before
- * signing); the default scheduler is single-threaded, so it does not overlap with itself. In HA (2+ replicas)
- * the table's {@code UNIQUE (chain_seq)} degrades the race to an INSERT that fails on the 2nd replica.
+ * anchors the chain with a signature. Idempotent (compares headHash before signing). With 2+ writers (the demo's
+ * synchronous reset next to the scheduled job, or 2+ replicas) two of them can both decide to sign the same head;
+ * the table's {@code UNIQUE (chain_seq)} plus {@code INSERT ... ON CONFLICT DO NOTHING} make the 2nd one a no-op.
  */
 @Service
 public class JournalCheckpointService {
@@ -106,19 +105,19 @@ public class JournalCheckpointService {
         JournalSigner signer = signers.activeSigner(activeAlgorithm);
         byte[] message = checkpointMessage(head.getSeq(), head.getEntryHash());
         String signature = signer.sign(message);
-        JournalCheckpoint cp = new JournalCheckpoint(head.getSeq(), head.getEntryHash(),
-                signer.algorithm(), signer.publicKeyBase64(), signature);
-        try {
-            return Optional.of(checkpoints.save(cp));
-        } catch (DataIntegrityViolationException raced) {
-            // Expected ONLY if another writer (the @Scheduled job vs the demo's synchronous reset) signed this
-            // same head first and hit UNIQUE(chain_seq): an idempotent no-op. But the catch is by TYPE:
-            // it is logged so that an UNEXPECTED cause (another constraint) stays VISIBLE instead of being swallowed
-            // silently while audit() would keep reporting the old checkpoint as valid.
-            log.debug("checkpoint not inserted for seq {} (probably a benign race on UNIQUE(chain_seq)): {}",
-                    head.getSeq(), raced.getMostSpecificCause().getMessage());
+        // Insert-if-absent, NOT save() + catch: the demo's synchronous reset and this @Scheduled job (or a 2nd replica)
+        // can both decide to sign the same head, and the loser must be a quiet no-op. Catching the UNIQUE(chain_seq)
+        // violation here does not work: Postgres aborts the transaction on the failed INSERT and Spring marks it
+        // rollback-only, so the method dies at COMMIT with UnexpectedRollbackException (live demo, 2026-10-10: HTTP 500
+        // on POST /api/demo/reset). ON CONFLICT DO NOTHING never raises, so the transaction stays healthy; any OTHER
+        // constraint violation still propagates loudly.
+        int inserted = checkpoints.insertIfHeadNotSigned(head.getSeq(), head.getEntryHash(),
+                signer.algorithm(), signer.publicKeyBase64(), signature, Instant.now());
+        if (inserted == 0) {
+            log.debug("checkpoint not inserted for seq {}: another writer already signed this head", head.getSeq());
             return Optional.empty();
         }
+        return checkpoints.findByChainSeq(head.getSeq());
     }
 
     /** The latest checkpoint (to expose it through the API). */
